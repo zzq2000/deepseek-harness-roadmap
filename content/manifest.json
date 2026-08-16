@@ -59,7 +59,7 @@
     {
       "id": "ch04",
       "no": 4,
-      "ready": false,
+      "ready": true,
       "stage": {
         "zh": "状态",
         "en": "State"

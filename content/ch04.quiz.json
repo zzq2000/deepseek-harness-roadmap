@@ -1,0 +1,154 @@
+{
+  "choice": [
+    {
+      "id": "c1",
+      "prompt": {
+        "zh": "一次上下文压缩把 surface 上 4 条消息换成 1 条摘要。压缩完成后，这个会话的日志事件总数发生了什么变化？",
+        "en": "One context compaction replaces 4 surface messages with a single summary. What happens to the session log's total event count?"
+      },
+      "options": {
+        "zh": [
+          "减少 3 条：4 条被删掉，摘要被写入",
+          "减少 4 条：原消息删掉，摘要不进日志",
+          "增加 1 条：原消息全部保留，摘要作为新事件追加",
+          "不变：摘要原地覆盖了第一条消息"
+        ],
+        "en": [
+          "Down by 3: the four are deleted and the summary is written",
+          "Down by 4: the originals are deleted and the summary stays out of the log",
+          "Up by 1: all originals are kept and the summary is appended as a new event",
+          "Unchanged: the summary overwrites the first message in place"
+        ]
+      },
+      "answer": 2,
+      "explain": {
+        "zh": "压缩是一次普通的 `append`，只是 `surfaceOp` 写成 `{ op: 'replace', start, end }`。`applySurfacePlan` 里 splice 改的是 `state.nodes`（surface 投影），日志本身只增不减。DSH 里没有任何函数会从会话日志删除事件。这正是「人看原文、模型看摘要」两个投影能共存的前提。",
+        "en": "Compaction is an ordinary `append` whose `surfaceOp` is `{ op: 'replace', start, end }`. The splice in `applySurfacePlan` edits `state.nodes` (the surface projection); the log itself only grows. No function in DSH removes an event from a session log. That is precisely what lets the human-reads-originals and model-reads-summary projections coexist."
+      }
+    },
+    {
+      "id": "c2",
+      "prompt": {
+        "zh": "一个 `session/event` 监听器在处理某条事件时抛出了异常。这条事件的下场是什么？",
+        "en": "A `session/event` listener throws while handling an event. What happens to that event?"
+      },
+      "options": {
+        "zh": [
+          "`append` 抛出，事件被回滚出日志",
+          "事件留在日志里，异常只被记为 warn，其余监听器照常收到它",
+          "事件留在日志里，但后续监听器被跳过",
+          "整个会话进入失败状态，后续 append 全部拒绝"
+        ],
+        "en": [
+          "`append` throws and the event is rolled back out of the log",
+          "The event stays in the log, the error is logged as a warning, and remaining listeners still receive it",
+          "The event stays in the log but the remaining listeners are skipped",
+          "The whole session enters a failed state and later appends are rejected"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "提交边界画在 `this.log.push(event)` 那一行。之后的监听器调用走 `invokeContainedSessionObservers`，每个监听器单独 try/catch，同步抛和异步 reject 都只 `logger.warn`。方法注释写明：Once the event enters the log, the append is committed。一个观察者失败既不能让已提交的 append 变成失败，也不能挡住其他观察者。",
+        "en": "The commit boundary is the `this.log.push(event)` line. Listener invocation afterwards goes through `invokeContainedSessionObservers`, which try/catches each listener individually and only `logger.warn`s both synchronous throws and async rejections. The method comment says it: Once the event enters the log, the append is committed. One observer's failure can neither un-commit the append nor block the others."
+      }
+    },
+    {
+      "id": "c3",
+      "prompt": {
+        "zh": "`session-checkpoint-policy` 在 `llm/stream` 上挂的监听器，把 `ctx.sessions.flush(session)` 包进了一个 async generator 再 `yield* next()`。为什么不直接 `await flush` 之后 `return next()`？",
+        "en": "The `session-checkpoint-policy` listener on `llm/stream` wraps `ctx.sessions.flush(session)` in an async generator and then does `yield* next()`. Why not simply `await flush` and `return next()`?"
+      },
+      "options": {
+        "zh": [
+          "为了让 flush 的耗时不计入请求超时",
+          "因为 `llm/stream` 的监听器签名是同步的，返回值必须是 AsyncIterable，不能是 Promise",
+          "为了让 flush 能被 AbortSignal 取消",
+          "为了让多个 checkpoint 监听器能并发执行"
+        ],
+        "en": [
+          "To keep flush latency out of the request timeout",
+          "Because the `llm/stream` listener is synchronous and must return an AsyncIterable, not a Promise",
+          "To let the flush be cancelled by an AbortSignal",
+          "To let multiple checkpoint listeners run concurrently"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "`llm/stream` 的监听器返回 `AsyncIterable<StreamChunk>`，是同步函数，没法 await。生成器包装解决了这个问题，而且顺带得到一个更强的性质：flush 发生在**第一个 chunk 被索取时**，而不是监听器返回时。flush 抛错则 `yield*` 永远到不了，适配器根本不会被调用，这就是 fail-closed。",
+        "en": "The `llm/stream` listener returns `AsyncIterable<StreamChunk>` from a synchronous function, so it cannot await. The generator wrapper solves that and gains a stronger property along the way: the flush happens **when the first chunk is pulled**, not when the listener returns. If the flush throws, `yield*` is never reached and the adapter is never invoked. That is fail-closed."
+      }
+    }
+  ],
+  "open": [
+    {
+      "id": "o1",
+      "prompt": {
+        "zh": "「模型可见即已记录」这句话有结构和时间两半。请分别指出哪段代码保证哪一半，并说明反方向（日志里的东西模型是否都能看见）为什么不成立，举出至少两类在日志里但不在模型视野里的事件。",
+        "en": "\"If the model saw it, it was recorded\" has a structural half and a temporal half. Identify which code guarantees each, and explain why the converse does not hold (is everything in the log visible to the model?). Name at least two classes of event that live in the log but not in the model's view."
+      },
+      "context": [
+        { "path": "packages/core/session/src/surface.ts", "lineStart": 15, "lineEnd": 28, "note": "只有三个类型能进 surface" },
+        { "path": "packages/core/session/src/index.ts", "lineStart": 726, "lineEnd": 747, "note": "deriveMessages 只走 surface" },
+        { "path": "packages/session/session-checkpoint-policy/src/index.ts", "lineStart": 63, "lineEnd": 83, "note": "三个语义检查点" },
+        { "path": "packages/session/session-checkpoint-policy/src/index.ts", "lineStart": 29, "lineEnd": 38, "note": "afterCheckpoint：flush 在第一个 chunk 之前" }
+      ],
+      "rubric": [
+        "必须指出结构那一半由 `deriveMessages` 保证：它只遍历 `surface.nodes`，没有原始日志回退路径",
+        "必须指出 surface 的成员只能是三个类型之一，且必须携带 `surfaceOp` 标记，所以进不了日志就进不了模型视野",
+        "必须指出时间那一半由 `session-checkpoint-policy` 保证：请求发出前 flush、工具执行前 flush",
+        "必须指出检查点是 fail-closed 的：flush 失败就不调用适配器 / 不执行工具",
+        "必须明确反方向不成立，并至少举出两类日志中不可见的事件（`assistant/chunk`、`turn/start` 或 `step/*` 边界、`tool/call`、`todo/write`、被 replace 遮蔽的消息）",
+        "（加分）注意到 `afterCheckpoint` 用 async generator 包装，使 flush 落在第一个 chunk 被索取之前而不是监听器返回时",
+        "（加分）注意到「记录是模型可见的超集」这个方向差正是压缩与重放能工作的空间",
+        "（加分）注意到空内容的 `assistant/message` 进日志但派生成 null，是另一类不可见"
+      ],
+      "reference": "两半各有明确的保证者。\n\n**结构那一半**由派生路径本身保证。`deriveMessages` 只做一件事：遍历 `this.surface.nodes`，对每个节点调 `deriveEventMessage`。它没有任何「从原始日志兜底」的分支，注释也写明了 a surface rewrite rebuilds the projection; there is no raw-log fallback。而 surface 的成员资格有两道闸：类型必须是 `SURFACE_EVENT_TYPES` 里的三个之一（`user/message` / `assistant/message` / `tool/result`），并且事件必须携带 `surfaceOp` 标记，`surfaceOpOf` 对缺标记和多余标记两个方向都抛错。于是「一条消息进入模型视野」的唯一路径就是「先作为一条带标记的事件进入日志」。不存在第二份历史。\n\n**时间那一半**由 `session-checkpoint-policy` 保证，整个插件只有三个监听器。`llm/stream` 上那个把 flush 包进一个 async generator：\n\n```ts\nreturn (async function* () {\n  await ctx.sessions.flush(session)\n  yield* next()\n})()\n```\n\n于是 flush 发生在第一个 chunk 被索取之前。flush 抛错，`yield*` 永远到不了，适配器根本不会被调用。`tools/execute` 上那个把同样的边界画在工具副作用之前（且只对顶层调用生效，嵌套调用复用外层检查点）。两处都是 fail-closed：宁可请求不发、工具不跑，也不让一个日志里没有的动作真的发生。\n\n**反方向不成立。** 日志里有大量模型看不到的东西：\n\n- `assistant/chunk`：流式原始分片，一条不丢地存着，用于逐 token 重放，但不是消息。\n- `turn/start` / `turn/end` / `step/start` / `step/end`：结构边界，不是消息。\n- `tool/call`：模型请求的调用记录，模型视野里对应的是 assistant 消息里的 tool-call 块，事件本身不上 surface。\n- `todo/write`：纯 UI 状态快照。\n- 被 `replace` 遮蔽的消息：压缩后原文还在日志里，但已经从 surface 上被 splice 掉。\n- 内容为空的 `assistant/message`：进日志（要挂 usage），但 `deriveEventMessage` 返回 null。\n\n所以准确的说法是：**记录是模型可见的严格超集**。这个方向差不是冗余，它正是压缩和重放能工作的空间：人类转录本读 `surfaceOp === 'append'` 的事件看到原文，模型读 surface 看到摘要，两者是同一条日志的两个投影。"
+    },
+    {
+      "id": "o2",
+      "prompt": {
+        "zh": "`Session.append` 里，监听器名单是在 `this.log.push(event)` **之前**解析的，而监听器的实际调用在 push **之后**。把这两步都挪到 push 之前会怎样？都挪到之后又会怎样？请结合 `collectSessionCallbacks` 和 `invokeContainedSessionObservers` 各自的错误处理说明。",
+        "en": "In `Session.append`, the listener list is resolved **before** `this.log.push(event)` while the listeners are actually invoked **after** it. What would happen if both steps moved before the push? What if both moved after? Answer in terms of the error handling in `collectSessionCallbacks` and `invokeContainedSessionObservers`."
+      },
+      "context": [
+        { "path": "packages/core/session/src/index.ts", "lineStart": 636, "lineEnd": 654, "note": "解析、push、调用三步" },
+        { "path": "packages/core/session/src/index.ts", "lineStart": 377, "lineEnd": 399, "note": "collectSessionCallbacks 与 invokeContainedSessionObservers" }
+      ],
+      "rubric": [
+        "必须指出 `collectSessionCallbacks` 内部是 `ctx.events.dispatch('emit', args)`，会跑 Cordis 的内部校验，可能抛异常",
+        "必须指出把解析放在 push 之前，是为了让这类失败发生时日志尚未改变",
+        "必须指出 `invokeContainedSessionObservers` 对每个监听器单独 try/catch，同步抛和异步 reject 都只记 warn",
+        "必须指出这种容纳只有在事件已提交之后才成立，所以调用必须在 push 之后",
+        "必须点明提交边界就是 `log.push` 这一行：之前的失败全部致命，之后的失败全部容纳",
+        "（加分）说明两步都挪到 push 之前的后果：监听器会看到一条还没进日志的事件，若此时它去读 `session.events` 或 `session.seq` 会读到不含该事件的状态，也可能观察到一条最终未提交的事件",
+        "（加分）说明两步都挪到 push 之后的后果：dispatch 的校验失败会发生在日志已改之后，调用方拿到异常却无法判断事件是否已入日志",
+        "（加分）注意到 `entry.appending` 重入闩和 `finally` 里的延迟 detach 与这个边界配套"
+      ],
+      "reference": "三步的拆分是围绕一条提交边界设计的，那条边界就是 `this.log.push(event)`。\n\n**为什么解析要在 push 之前。** `collectSessionCallbacks` 里是 `[...ctx.events.dispatch('emit', args)]`，`dispatch` 不只是取一份监听器数组，它会跑 Cordis 的内部校验：作用域过滤（`session/event` 是 `Scoped<Session>`，agent 作用域的监听器只应收到自己那些会话的事件）、上下文有效性等等。这些校验有可能抛。如果解析放在 push 之后，一次校验失败就会发生在日志已经改变之后：调用方收到异常，却无法判断这条事件到底进没进日志，因为 `append` 的返回值也没拿到。放在 push 之前，抛出时日志一个字节都没动，语义是干净的「这次 append 没成功」。\n\n**为什么调用要在 push 之后。** `invokeContainedSessionObservers` 对每个监听器单独 try/catch，同步抛只记 `logger.warn`，返回值再包一层 `Promise.resolve(...).catch(...)` 把异步 reject 也吞掉。这种「失败只记日志」的容纳只有在事件已经提交之后才是正确的，方法注释写得很直白：Once the event enters the log, the append is committed。一个观察者失败不能让已提交的 append 变成失败，也不能挡住后面的观察者。反过来，如果调用发生在 push 之前，一个监听器读 `session.seq` 或 `session.events` 会得到不含这条事件的状态，而且它可能观察到一条最终因为后续步骤失败而根本没进日志的事件。\n\n**两步都挪到 push 之前**：监听器提前看到未提交的事件，持久化插件会把一条可能不存在的事件排进写队列，且 `session.seq` 与它收到的 `event.seq` 对不上。\n\n**两步都挪到 push 之后**：dispatch 的校验失败变成了「日志已改但报错」，`append` 的失败语义从原子变成了部分完成。\n\n配套的还有 `entry.appending` 这个重入闩：它在这一段前后置位和复位，`finally` 里还处理了「发布过程中请求了 detach」的延迟情况。这些都是同一条边界的组成部分：在提交点前后，失败的含义完全不同。"
+    },
+    {
+      "id": "o3",
+      "prompt": {
+        "zh": "一次 surface replace（压缩）要过三道校验。请逐一说明它们各自防的是什么，并特别解释 `assertToolResultRewrite` 为什么要把两边的 `content` 挖空再做深比较，而不是直接允许替换。",
+        "en": "A surface replace (compaction) passes three checks. Explain what each one prevents, and in particular why `assertToolResultRewrite` hollows out `content` on both sides before a deep comparison instead of simply allowing the replacement."
+      },
+      "context": [
+        { "path": "packages/core/session/src/surface.ts", "lineStart": 246, "lineEnd": 266, "note": "replacementRange：范围必须在当前 surface 上" },
+        { "path": "packages/core/session/src/surface.ts", "lineStart": 211, "lineEnd": 243, "note": "assertProvenance：被遮蔽的节点必须全部登记" },
+        { "path": "packages/core/session/src/surface.ts", "lineStart": 286, "lineEnd": 318, "note": "assertToolResultRewrite：只许改 content" },
+        { "path": "packages/core/session/src/surface.ts", "lineStart": 321, "lineEnd": 347, "note": "planSurfaceEvent：三道校验串起来" }
+      ],
+      "rubric": [
+        "必须指出 `replacementRange` 查的是当前 surface（`state.nodes`）而不是日志，因此已被前一次压缩遮蔽的 seq 不能再当端点",
+        "必须指出 `assertProvenance` 要求 `sourceEventSeqs` 覆盖每一个被遮蔽的节点，把「摘要从哪来」变成日志里的硬数据",
+        "必须指出 `assertToolResultRewrite` 限制 tool/result 替换只能改一个节点且只能改 content",
+        "必须解释挖空 content 深比较的目的：确保 `callId`、工具调用与结果的配对、错误标记等字段一字不改",
+        "必须说明为什么这些字段不能改：改了会破坏 tool/call 与 tool/result 的配对关系，模型看到的调用历史就不自洽",
+        "（加分）指出这三道校验都在 `planSurfaceEvent` 里、在事件进日志之前跑，失败则日志不变",
+        "（加分）指出 `assertProvenance` 还检查 sourceEventSeqs 必须引用更早的事件、不能重复",
+        "（加分）说明工具结果裁剪的实际用途：几万字的读取结果换成一句占位，模型仍知道这次调用发生过且成功"
+      ],
+      "reference": "三道校验都在 `planSurfaceEvent` 里串起来，全部发生在事件进日志之前，任何一道失败日志都不变。\n\n**第一道：范围真实存在。** `replacementRange` 用 `state.nodes.indexOf(op.start)` 查，查的是**当前 surface**，不是日志。这道校验防的是拿一个已经被前一次压缩遮蔽掉的 seq 当端点：那个节点已经不在模型视野里了，再拿它划范围会让 surface 的状态变得无法解释。同时它还检查 `startIdx <= endIdx`，防止倒着写的区间。\n\n**第二道：来源必须登记齐。** `assertProvenance` 算出这次替换实际遮蔽了哪些节点，然后要求 `sourceEventSeqs` 一条不漏地包含它们，缺一个就报 missing。它还顺带检查引用的都是更早的事件、没有重复。这道校验的意义是把「这条摘要是从哪几条消息压出来的」从压缩插件的私有知识变成日志里的硬数据。任何人拿到日志都能重建被遮蔽的那一段，不需要知道当初用的是哪个压缩策略。\n\n**第三道：tool/result 只许改 content。** 它先要求恰好替换一个当前节点，再做那个挖空比较：\n\n```ts\noriginalRest['message'] = { ...original.data.message, content: [{ ...originalResult, content: null }] }\nreplacementRest['message'] = { ...event.data.message, content: [{ ...replacementResult, content: null }] }\nif (!isDeepEqualJson(originalRest, replacementRest)) throw ...\n```\n\n把两边 tool-result 块的 `content` 都置成 null，然后深比较剩下的全部字段。这样能改的就只剩 content 一处，`callId`、`toolCallId`、`isError`、`turn`/`step`、错误标识全部必须一字不差。\n\n**为什么这些字段不能动。** `tool/call` 和 `tool/result` 靠 `callId` 配对，这个配对关系是模型理解「我发起的那次调用得到了什么」的唯一依据。裁剪时如果 callId 变了或者错误标记被翻转，模型看到的就是一次没有结果的调用、或者一次成功变失败的调用，整段历史不自洽。真实用途是工具结果裁剪：一个几万字的文件读取结果换成一句「（内容已裁剪）」，模型仍然知道这次调用发生过、成功了、是哪一次，只是看不到内容。这正好是压缩想要的效果，多一分都不行。"
+    }
+  ]
+}
