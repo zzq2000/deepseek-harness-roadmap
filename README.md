@@ -2,6 +2,8 @@
 
 一个本地运行的交互式课程，目标是**完全读懂 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的源码，并能基于它做二次开发**。
 
+课程同时解读 DSH 底层插件框架 Cordis 的论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)：第 0 章给出出处，第 2 章末尾在读完源码之后做完整对照，第 3 章接上它的配置层部分。
+
 ---
 
 ## 快速开始
