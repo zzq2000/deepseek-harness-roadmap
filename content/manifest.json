@@ -46,7 +46,7 @@
     {
       "id": "ch03",
       "no": 3,
-      "ready": false,
+      "ready": true,
       "stage": {
         "zh": "装配",
         "en": "Assembly"

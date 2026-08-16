@@ -1,0 +1,149 @@
+{
+  "choice": [
+    {
+      "id": "c1",
+      "prompt": {
+        "zh": "一条补丁写 `- id: tools` + `config: { mode: code }`，而 `tools` 行原本的 config 有五个键。应用之后这一行的 config 是什么？",
+        "en": "A patch says `- id: tools` with `config: { mode: code }`, while the `tools` row's original config had five keys. What is the row's config after the patch is applied?"
+      },
+      "options": {
+        "zh": [
+          "六个键：原有五个加上 `mode`",
+          "只有 `mode` 一个键，原有五个全部消失",
+          "五个键，其中 `mode` 被更新为 `code`",
+          "报错，因为补丁的 config 结构和目标行不一致"
+        ],
+        "en": [
+          "Six keys: the original five plus `mode`",
+          "Just `mode`; all five original keys are gone",
+          "Five keys, with `mode` updated to `code`",
+          "An error, because the patch's config shape does not match the target row"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "`applyEntryPatches` 的写回是 `target[key] = value`，整个 `config` 对象被替换而不是深合并。`dsh-base` 的开头注释把这条规矩的后果写明了：凡是按模式不同的配置，由每个模式 bundle 完整重述，base 里只放中性默认值。写自己的补丁前先 `--dump-config` 看清目标行的完整配置。",
+        "en": "`applyEntryPatches` writes back with `target[key] = value`, so the whole `config` object is replaced rather than deep-merged. The `dsh-base` opening comment spells out the consequence: any value that differs by mode is restated in full by each mode bundle, and base holds only neutral defaults. Run `--dump-config` on the target row before writing your own patch."
+      }
+    },
+    {
+      "id": "c2",
+      "prompt": {
+        "zh": "`applyEntryPatches` 处理完 `insert` 分支后调用了 `buildMap(insert)`。去掉这一行会发生什么？",
+        "en": "After handling the `insert` branch, `applyEntryPatches` calls `buildMap(insert)`. What breaks if that line is removed?"
+      },
+      "options": {
+        "zh": [
+          "插入的行不会被写进最终的条目列表",
+          "group 行的子行不再被递归索引",
+          "`dsh-web-app` 层再也无法按 id 改写 `dsh-base` 插入的行",
+          "同一个 id 被插入两次时不会报重复错误"
+        ],
+        "en": [
+          "Inserted rows never make it into the final entry list",
+          "Child rows of a group are no longer indexed recursively",
+          "The `dsh-web-app` layer can no longer edit rows that `dsh-base` inserted, by id",
+          "Inserting the same id twice would stop raising a duplicate error"
+        ]
+      },
+      "answer": 2,
+      "explain": {
+        "zh": "所有层被扁平成一个补丁列表后单次应用，id 索引是在函数开头对**初始数据**建的。`dsh-base` 用一个 `insert` 塞进 100 多行，如果不把它们立刻登记进索引，后面 `dsh-web-app` 层按 id 找这些行就会 `entry %C not found`。源码注释原话：Index what this patch added so a LATER patch in the same list can target it。",
+        "en": "All layers flatten into one patch list applied in a single pass, and the id index is built at the top of the function from the **initial data**. `dsh-base` pushes 100+ rows with one `insert`; without registering them immediately, the later `dsh-web-app` layer looking them up by id would hit `entry %C not found`. The source comment: Index what this patch added so a LATER patch in the same list can target it."
+      }
+    },
+    {
+      "id": "c3",
+      "prompt": {
+        "zh": "你往 profile 的 `cordis.patch.yml` 里插入一行新插件，它 `inject` 了 `session`。这一行应该放在补丁列表的什么位置，才能保证 `session` 先于它启动？",
+        "en": "You insert a new plugin row into a profile's `cordis.patch.yml`, and it injects `session`. Where in the patch list must the row go so that `session` starts first?"
+      },
+      "options": {
+        "zh": [
+          "必须放在 `session` 行之后，否则启动顺序错乱",
+          "必须放在整个列表末尾，用户层的行一律最后加载",
+          "放哪里都行，行序不携带任何加载语义",
+          "必须和 `session` 放进同一个 group 行"
+        ],
+        "en": [
+          "After the `session` row, otherwise startup order breaks",
+          "At the very end of the list; user-layer rows always load last",
+          "Anywhere; row order carries no load semantics",
+          "Inside the same group row as `session`"
+        ]
+      },
+      "answer": 2,
+      "explain": {
+        "zh": "`EntryGroup.update` 用 `Promise.allSettled` 把所有行同时创建出来，谁先激活由第 1 章讲的 epoch 决定：一个 fiber 在它 `inject` 的服务全部就绪后才进入 ACTIVE。`dsh-base` 的注释写得很直接：Row order carries no load semantics (activation is service-availability driven); the grouping is for readers。你要保证的是 `inject` 写对，不是位置放对。",
+        "en": "`EntryGroup.update` creates every row at once with `Promise.allSettled`, and activation order is decided by the epoch mechanism from chapter 1: a fiber becomes ACTIVE only once every service it injects is available. The `dsh-base` comment is explicit: Row order carries no load semantics (activation is service-availability driven); the grouping is for readers. What you have to get right is `inject`, not placement."
+      }
+    }
+  ],
+  "open": [
+    {
+      "id": "o1",
+      "prompt": {
+        "zh": "`dsh --profile web --port 9000` 里的 `--port` 会打赢配置文件里写的 `port: 3080`，但 DSH 里没有任何一行代码在实现「命令行优先级更高」。请说明这个行为是由哪几个已有机制组合出来的，并按时间顺序说清 `!!js ctx.webStartup.port ?? 3080` 这个表达式是在什么时刻、由谁求值的。",
+        "en": "In `dsh --profile web --port 9000`, the `--port` flag beats the `port: 3080` written in the config file, yet no line of DSH code implements \"the command line has higher priority.\" Explain which existing mechanisms combine to produce this behaviour, and describe in chronological order when, and by whom, the expression `!!js ctx.webStartup.port ?? 3080` is evaluated."
+      },
+      "context": [
+        { "path": "packages/bundle/web-app/cordis.patch.yml", "lineStart": 107, "lineEnd": 120, "note": "web-startup 提供者与 webserver 消费者两行" },
+        { "path": "vendor/loader/src/index.ts", "lineStart": 92, "lineEnd": 101, "note": "internal/config 钩子：waterfall 里的惰性求值" },
+        { "path": "vendor/loader/src/config/utils.ts", "lineStart": 5, "lineEnd": 22, "note": "evaluate 与 interpolate" },
+        { "path": "packages/boot/cmdline/src/index.ts", "lineStart": 68, "lineEnd": 72, "note": "provideCmdline：命令行只是一个服务" }
+      ],
+      "rubric": [
+        "必须指出 `!!js` 在 YAML 解析时不求值，只被包成 `{ __jsExpr }` 节点",
+        "必须指出求值发生在 fiber 激活时，入口是 Loader 注册的 `internal/config` 事件监听",
+        "必须指出 `webserver` 行声明了 `inject: [webStartup]`，因此在该服务就绪前 fiber 处于 PENDING，不会激活，也就不会求值",
+        "必须指出 `web-startup` 行是 `webStartup` 服务的提供者，它自己注入 `cmdlineArgs` 解析 flag，把结果 provide 出去",
+        "必须点明这是「服务解析 + 惰性求值 + inject 调度」三个已有机制的组合，没有专门的优先级代码",
+        "（加分）注意到 `internal/config` 监听是 waterfall 形态：先 `next()` 拿内层结果再 `interpolate`，属于第 2 章讲的洋葱后置加工",
+        "（加分）注意到 `evaluate` 用 `with (ctx)`，所以表达式里能直接写服务名而不必写 `ctx.` 前缀",
+        "（加分）注意到 `provideCmdline` 用的就是普通的 `ctx.provide`，命令行在框架里没有任何特权地位"
+      ],
+      "reference": "整个行为由三个已有机制拼出来，没有一行专门的优先级代码。\n\n第一层是解析。`!!js` 是 Include 定义的 YAML 标签，`construct` 把标量包成 `{ __jsExpr: data }`。所以配置文件读进来的时候，`port` 的值是一个表达式节点，不是数字。这一步只发生一次，在 `Include.read()` 里。\n\n第二层是调度。`webserver` 行写了 `inject: [webStartup]`。第 1 章讲过，声明了依赖的 fiber 在依赖就绪前停在 PENDING，`_reload` 不会跑。所以这一行在 `webStartup` 服务出现之前根本不会被激活。\n\n与此同时，`web-startup` 行没有这个依赖，它注入的是 `cmdlineArgs`（启动器在 `prepare` 阶段用 `provideCmdline` 提供的普通服务），用 commander 解析 `--port`，然后把解析结果 provide 成 `webStartup` 服务。这一 provide 触发第 2 章讲的 `notify` 链，`webserver` 那个 fiber 的 epoch 变化，被唤醒。\n\n第三层是求值。fiber 激活时会走 Cordis 的 `internal/config` 事件，Loader 在构造函数里注册了一个全局监听：\n\n```ts\nctx.on('internal/config', function (this: Fiber, _config, next) {\n  const config = next()\n  if (!this.entry || this.parent.fiber?.entry === this.entry) return config\n  const plugin = this.runtime?.callback\n  if (plugin?.[EntryGroup.key]) return config\n  return interpolate(this.ctx, config)\n}, { global: true })\n```\n\n这是标准的 waterfall 洋葱后置加工：先 `next()` 拿到内层结果，再对结果做 `interpolate`。`interpolate` 递归遍历 config，遇到 `__jsExpr` 节点就调 `evaluate`，而 `evaluate` 是 `new Function` 造的 `with (ctx) { return eval(expr) }`。此时 `this.ctx` 上已经能解析到 `webStartup`（第 2 章的 get 陷阱沿 fiber 链向上找），所以 `ctx.webStartup.port` 拿到 9000，`?? 3080` 的右半边根本不参与。\n\n如果这一次调用没有 `--port`，`web-startup` 的解析结果里 `port` 是 undefined，`??` 回落到 3080。\n\n所以「命令行优先」是这么得来的：命令行是一个普通服务，它的值通过 `provide` 进入注册表；配置表达式是惰性的，晚到激活时才求值；`inject` 保证激活时机一定晚于服务就绪。三件事都不是为了优先级设计的，优先级是它们的副产品。cmdline 包的模块注释把这一点写成了一句话：No row has launcher-level command-line status。"
+    },
+    {
+      "id": "o2",
+      "prompt": {
+        "zh": "`EntryGroup.update` 创建子条目时用的是 `Promise.allSettled` 而不是 `Promise.all`，紧接着还有一句 `if (this.ctx.fiber.uid === null) return`。分别说明这两处在防什么，以及失败时的回滚为什么要倒序拆除新建的条目。",
+        "en": "`EntryGroup.update` creates child entries with `Promise.allSettled` rather than `Promise.all`, and follows it with `if (this.ctx.fiber.uid === null) return`. Explain what each of those two guards against, and why the failure rollback tears down newly created entries in reverse order."
+      },
+      "context": [
+        { "path": "vendor/loader/src/config/group.ts", "lineStart": 59, "lineEnd": 106, "note": "EntryGroup.update：并发创建、早退、回滚" },
+        { "path": "vendor/loader/src/config/group.ts", "lineStart": 20, "lineEnd": 40, "note": "create：失败时恢复 parent 引用" }
+      ],
+      "rubric": [
+        "必须指出 `allSettled` 保证每个条目都跑到有结果，`all` 会在首个失败时提前返回而把其余仍在启动中的插件晾着无人回收",
+        "必须指出 `allSettled` 让多个失败能被一次性收集，单个直接抛、多个包成 `AggregateError`",
+        "必须指出 `uid === null` 表示这个 group 自身的 fiber 已被销毁（第 1 章：dispose 后 uid 置空）",
+        "必须指出销毁已经接管了终止，此时兄弟条目的失败不再描述一次「活着的更新」，回滚没有意义",
+        "必须指出倒序拆除是因为后建的条目可能依赖先建的，倒序保证依赖方先于被依赖方消失，与第 1 章的副作用倒序清理一致",
+        "（加分）注意到回滚过程中的错误被收进 `rollbackErrors` 一起抛出，不会掩盖原始错误",
+        "（加分）注意到启动时 `oldConfig` 为空，所以任何一行失败都导致整棵树不留，DSH 没有「部分启动」状态"
+      ],
+      "reference": "三处都是并发场景下的收尾问题。\n\n**`allSettled` 而不是 `all`。** `Promise.all` 在第一个 reject 时就返回，此时其余条目还在 `Entry.init` 里跑，它们的 fiber 已经创建但没人再管。这些插件可能已经注册了副作用、开了文件句柄、绑了端口，而调用方以为更新失败了。`allSettled` 等到每个条目都 settle，才有一份完整的成败清单，也才敢开始回滚。附带的好处是失败可以聚合：一个直接抛出原错误，多个包成 `AggregateError`，一次启动能一并报出所有坏行，而不是修一个再发现下一个。\n\n**`uid === null` 早退。** 第 1 章讲过 `uid` 是 fiber 的活性标记，dispose 之后置空。这里检查的是 group 自己的 fiber。并发创建期间，外面完全可能把整棵树销毁掉（信号、`appExit`、上层 include 被卸载）。销毁路径已经在拆这些条目了，此时再走回滚逻辑就是两个流程同时拆同一批东西。源码注释：Disposal owns termination: sibling starts can still be settling after the containing tree has gone away, but their failures no longer describe a live update to roll back。\n\n**倒序拆除。** 条目之间存在依赖：后建的可能注入了先建的服务。倒序保证消费者先消失、提供者后消失，中间不会出现「服务没了但消费者还活着」的窗口。这和第 1 章讲的两种清理顺序是同一条原则：撤销的顺序是建立顺序的逆序。\n\n回滚的第二段把 `oldConfig` 逐条重建，过程中的错误进 `rollbackErrors`，最后和原始错误一起包成 `AggregateError`。原始错误永远不会被回滚失败掩盖，因为它是排在数组第一位的。\n\n启动场景下 `oldConfig` 是空数组，所以第二段什么也不做。结果是任何一行插件启动失败，整棵树都被拆干净，`boot()` 抛错退出。DSH 里不存在「一半插件跑起来了」这个状态。"
+    },
+    {
+      "id": "o3",
+      "prompt": {
+        "zh": "`Include` 的 `[Service.init]` 是个生成器，`yield () => this.stop()` 这一句夹在读文件和 `apply(candidate)` 之间。把 yield 挪到函数最开头（读文件之前）会有什么后果？挪到 `apply` 之后呢？",
+        "en": "`Include`'s `[Service.init]` is a generator, and `yield () => this.stop()` sits between reading the file and calling `apply(candidate)`. What happens if the yield is moved to the very top of the function, before the read? And what if it is moved after `apply`?"
+      },
+      "context": [
+        { "path": "vendor/include/src/index.ts", "lineStart": 273, "lineEnd": 294, "note": "Service.init 生成器与 stop()" },
+        { "path": "vendor/include/src/index.ts", "lineStart": 311, "lineEnd": 321, "note": "apply / _apply：打补丁后交给 root.update" }
+      ],
+      "rubric": [
+        "必须指出 yield 出来的函数是清理函数，注册之后这个副作用才会在 fiber 销毁时被撤销",
+        "必须指出挪到 apply 之后是真正的 bug：apply 创建了整批子 fiber，如果它抛错，清理函数还没注册，这批子 fiber 就泄漏了",
+        "必须指出 apply 内部会创建子条目（`root.update`），所以清理必须先于它注册",
+        "必须指出挪到最开头基本无害但没必要：读文件阶段还没有任何东西需要清理，`stop()` 此时是空操作",
+        "（加分）注意到读文件失败（尤其是 ENOENT 且没有 initial）是直接抛出，走的是「还没注册副作用就失败」这条干净路径",
+        "（加分）把这一点接回第 1 章：`ctx.effect()` 保证清理恰好执行一次，而注册时机决定了清理覆盖的范围"
+      ],
+      "reference": "这是第 1 章「可撤销副作用」在真实代码里的一个位置选择题。\n\n生成器形式的 `Service.init` 里，每个 `yield` 出来的函数都会被登记成这个 fiber 的一个 effect，fiber 销毁时倒序执行。所以 yield 的位置划分了「已经受清理保护」和「还没有」两段。\n\n**挪到 `apply` 之后：真正的 bug。** `apply()` 会调 `this.root.update(data)`，那里面 `Promise.allSettled` 并发创建全部子条目，每个都是一个新 fiber。如果 apply 中途抛错（一个插件 import 失败、一个插件 init 抛异常），而 `stop()` 还没注册，这些已经建起来的子 fiber 就没有任何东西负责拆它们。虽然 `EntryGroup.update` 自己有回滚逻辑，但那只覆盖它自己知道的那一层；Include 这一层的清理入口丢了，`this.root` 上残留的状态和 `writeQueue` 里挂着的写任务都没人收。\n\n**挪到最开头：无害但没意义。** 读文件阶段唯一可能的副作用是 `initial` 分支写了一次文件，而 `stop()` 做的是 `this.root.stop()` 加 `flushWrite()`，对一棵还没有任何条目的空树来说是空操作。所以早注册不会出错，只是不表达任何东西。\n\n现在这个位置恰好卡在两者之间，表达的意思很准确：**读文件失败时没有副作用需要撤销，直接抛；一旦开始创建子树，清理入口必须已经在位。** 读文件那一段的错误处理也印证了这一点，ENOENT 且没有 `initial` 时直接 `throw new Error('config file not found: ...')`，走的是完全干净的失败路径。\n\n接回第 1 章：`ctx.effect()` 保证的是「清理恰好执行一次」，它管不了「清理覆盖哪些东西」。后者由注册时机决定，所以 yield 放在哪一行是一个语义选择，不是风格问题。"
+    }
+  ]
+}
