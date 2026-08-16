@@ -1,0 +1,130 @@
+{
+  "choice": [
+    {
+      "id": "c1",
+      "prompt": {
+        "zh": "同一个插件函数被 `ctx.plugin(myPlugin, cfgA)` 和 `ctx.plugin(myPlugin, cfgB)` 挂载了两次。此时注册表里有几个 `Runtime`、几个 `Fiber`？",
+        "en": "The same plugin function is mounted twice: `ctx.plugin(myPlugin, cfgA)` and `ctx.plugin(myPlugin, cfgB)`. How many `Runtime`s and `Fiber`s exist in the registry?"
+      },
+      "options": {
+        "zh": ["2 个 Runtime，2 个 Fiber", "1 个 Runtime，2 个 Fiber", "1 个 Runtime，1 个 Fiber", "2 个 Runtime，1 个 Fiber"],
+        "en": ["2 Runtimes, 2 Fibers", "1 Runtime, 2 Fibers", "1 Runtime, 1 Fiber", "2 Runtimes, 1 Fiber"]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "{{src:vendor/cordis/src/registry.ts#L322-L330|plugin()}} 里，`_internal` 是以 **callback 为键**的 Map，同一个函数只会建一次 Runtime；而 `new Fiber(...)` 每次调用都执行。Runtime 持有共享的 `Config` schema 和 `fibers` 列表，Fiber 各自持有配置、状态和 effect。",
+        "en": "In {{src:vendor/cordis/src/registry.ts#L322-L330|plugin()}}, `_internal` is a Map **keyed by callback**, so one function yields exactly one Runtime; `new Fiber(...)` runs on every call. The Runtime holds the shared `Config` schema and the `fibers` list; each Fiber holds its own config, state, and effects."
+      }
+    },
+    {
+      "id": "c2",
+      "prompt": {
+        "zh": "一个 effect 的 body 是生成器，依次 `yield` 了三个清理函数 A、B、C。当这个 effect 的 disposer 被调用时，执行顺序是？",
+        "en": "An effect body is a generator that yields three disposers A, B, C in order. When that effect's disposer is called, what is the execution order?"
+      },
+      "options": {
+        "zh": [
+          "A → B → C，并发启动",
+          "C → B → A，串行执行（前一个完成才跑下一个）",
+          "C → B → A，并发启动不等待",
+          "顺序不确定，取决于哪个先返回"
+        ],
+        "en": [
+          "A → B → C, started concurrently",
+          "C → B → A, serially (each waits for the previous to finish)",
+          "C → B → A, started concurrently without waiting",
+          "Unspecified — depends on which returns first"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "见 {{src:vendor/cordis/src/fiber.ts#L427-L442|dispose 闭包}}：`disposables.splice(0).reverse()` 决定了倒序，而 `task = task.then(() => runDisposable(disposable))` 把它们串成一条 Promise 链。倒序是因为后注册的东西通常依赖先注册的（C 依赖 B 依赖 A）；串行是因为并发会让依赖关系失效。",
+        "en": "See the {{src:vendor/cordis/src/fiber.ts#L427-L442|dispose closure}}: `disposables.splice(0).reverse()` gives reverse order, and `task = task.then(() => runDisposable(disposable))` chains them into one Promise chain. Reverse because later registrations usually depend on earlier ones (C depends on B depends on A); serial because concurrency would break those dependencies."
+      }
+    },
+    {
+      "id": "c3",
+      "prompt": {
+        "zh": "`Context` 的构造函数最后一行是 `return self`，其中 `self` 是 `new Proxy(this, ReflectService.handler)`。这个设计的直接后果是？",
+        "en": "The last line of the `Context` constructor is `return self`, where `self` is `new Proxy(this, ReflectService.handler)`. What is the direct consequence?"
+      },
+      "options": {
+        "zh": [
+          "Context 变成单例，全应用只有一个实例",
+          "插件拿到的 ctx 永远是代理对象，读属性会走服务解析而不是普通属性查找",
+          "Context 的所有方法调用都变成异步的",
+          "子上下文无法继承父上下文的属性"
+        ],
+        "en": [
+          "Context becomes a singleton with one instance per application",
+          "The ctx a plugin receives is always the proxy, so property reads go through service resolution rather than plain lookup",
+          "All Context method calls become asynchronous",
+          "Child contexts cannot inherit properties from their parent"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "构造函数返回对象时，`new` 表达式的结果就是那个对象。所以你手里的 `ctx` 从来不是 Context 实例本身。这正是 `ctx.tools`、`ctx.llm` 能「服务注册后凭空出现」的原因 —— 读属性走的是代理的 get 陷阱。至于继承，恰恰相反：{{src:vendor/cordis/src/context.ts#L99-L107|extend()}} 用 `Object.create` 让子上下文原型继承父级。",
+        "en": "When a constructor returns an object, that object is the result of `new`. So the `ctx` you hold is never the Context instance itself. That is exactly why `ctx.tools` and `ctx.llm` can materialize once their service registers — reads go through the proxy's get trap. As for inheritance, the opposite is true: {{src:vendor/cordis/src/context.ts#L99-L107|extend()}} uses `Object.create` so a child context prototypally inherits its parent."
+      }
+    }
+  ],
+  "open": [
+    {
+      "id": "o1",
+      "prompt": {
+        "zh": "`effect()` 里有这样一段顺序：**先**把 `wrapper` 推进 `this._disposables`，**然后**才调用 `this._execute(runner)` 去跑用户的 effect body。\n\n如果把这两步对调（先执行 body，成功后再登记 wrapper），会引入什么 bug？请构造一个具体场景说明。",
+        "en": "Inside `effect()` the order is: **first** push `wrapper` onto `this._disposables`, **then** call `this._execute(runner)` to run the user's effect body.\n\nIf you swapped those two steps (run the body first, register the wrapper on success), what bug would that introduce? Construct a concrete scenario."
+      },
+      "context": [
+        { "path": "vendor/cordis/src/fiber.ts", "lineStart": 504, "lineEnd": 537, "note": "wrapper 定义、登记与执行" },
+        { "path": "vendor/cordis/src/fiber.ts", "lineStart": 675, "lineEnd": 696, "note": "_unload 从 _disposables 取清理函数" }
+      ],
+      "rubric": [
+        "指出核心问题：在 execute() 运行期间，这个 effect 对 fiber 的卸载流程是不可见的",
+        "构造出具体的重入场景：effect body 内部（同步或异步）触发了所属 fiber 的卸载 / 父插件卸载，此时 _unload 遍历 _disposables 时看不到这个 effect",
+        "指出后果是资源泄漏：body 已经打开了 socket/定时器/监听器，但清理函数永远不会被调用",
+        "（加分）意识到异步 body 让窗口更大 —— setup 期间的任何时刻都可能到达卸载请求，这也是 setupBarrier / disposeAfter 存在的原因"
+      ],
+      "reference": "对调后，在 `execute()` 执行期间这个 effect 对卸载流程是不可见的。具体场景：插件 A 的 effect body 是 async，里面 `await` 了一次网络请求并在之前已经打开了一个 socket；就在这个 await 期间，父插件被卸载，`_unload()` 遍历 `_disposables` 准备清理 —— 但因为 wrapper 还没登记，这个 effect 不在列表里，`_unload` 顺利跑完并把 fiber 标记为已卸载。随后 body 恢复执行、返回 disposer，而此时已经没有任何人会调用它，socket 永久泄漏。同步场景也存在：body 内部直接调用 `ctx.fiber.dispose()` 或触发了某个导致父级卸载的事件，同样漏掉自己。源码注释把这点写得很直白：「Make the effect visible to a reentrant owner unload before execute() runs any plugin code.」先登记后执行，最坏情况只是清理一个还没完全建立的资源，而反过来是必然泄漏。"
+    },
+    {
+      "id": "o2",
+      "prompt": {
+        "zh": "清理顺序在两个层级上不一样：\n\n- 一个 effect **内部**的多个 disposer：倒序 + 串行\n- 一个 fiber **卸载时**的多个 effect：倒序 + 并发（`Promise.all`）\n\n**为什么 fiber 级别敢用并发，而 effect 内部不敢？** 这个差异反映了框架对插件作者的什么假设？",
+        "en": "Cleanup order differs at two levels:\n\n- Multiple disposers **within one effect**: reverse + serial\n- Multiple effects **when a fiber unloads**: reverse + concurrent (`Promise.all`)\n\n**Why is concurrency safe at the fiber level but not within an effect?** What assumption about plugin authors does this difference encode?"
+      },
+      "context": [
+        { "path": "vendor/cordis/src/fiber.ts", "lineStart": 427, "lineEnd": 442, "note": "effect 内部：倒序串行" },
+        { "path": "vendor/cordis/src/fiber.ts", "lineStart": 675, "lineEnd": 696, "note": "fiber 卸载：Promise.all 并发" },
+        { "path": "vendor/cordis/src/utils.ts", "lineStart": 27, "lineEnd": 31, "note": "clear() 返回倒序数组" }
+      ],
+      "rubric": [
+        "指出 effect 内部的多个 disposer 来自同一段 setup 代码，彼此有明确的建立顺序，因此存在拆除顺序依赖，必须串行倒序",
+        "指出不同 effect 之间被假定为相互独立、没有拆除顺序依赖，所以可以并发",
+        "点出这是框架用 API 形状表达的设计约束：有顺序依赖的清理逻辑本来就应该写在同一个 effect（例如同一个生成器）里",
+        "（加分）注意到 _unload 里每个 disposer 各自 try/catch 只记日志，即一个 effect 清理失败不阻断其他 —— 卸载路径是尽力而为的",
+        "（加分）注意到 fiber 级虽然并发，但遍历顺序仍是倒序（DisposableList.clear() 里的 reverse()），并发只是不等待彼此完成"
+      ],
+      "reference": "一个 effect 内部的 disposer 是同一段 setup 顺序产生的：先开数据库、再起定时器、再订阅事件，那么拆除必须严格反过来且逐个等待，否则会出现「数据库已关但订阅还在回调」这类竞态。而不同 effect 之间，框架**假定它们相互独立** —— 这不是乐观估计，而是框架用 API 形状强加的约束：任何有拆除顺序依赖的清理逻辑，作者本来就应该写进同一个 effect 的生成器里，从而落进串行分支。既然独立，并发拆除就是纯粹的性能收益。补充两点：`_unload` 遍历顺序仍是倒序（`DisposableList.clear()` 里的 `reverse()`），并发只是不互相等待；每个 disposer 外面都套了 try/catch 且只 `logger.error`，所以一个插件的清理失败不会阻断整棵树的卸载 —— 卸载路径必须是尽力而为的。"
+    },
+    {
+      "id": "o3",
+      "prompt": {
+        "zh": "`_refresh()` 不是简单地判断「依赖是否都齐了」，而是把每个依赖的**提供方 fiber 的 uid** 拼成一个字符串当作 epoch，再交给 `_setEpoch()` 比较新旧。\n\n如果改成一个布尔值（依赖齐全 = true，缺失 = false），会丢失什么能力？举一个 DSH 里会因此失效的实际场景。",
+        "en": "`_refresh()` does not merely check \"are all dependencies present\". It concatenates the **uid of each dependency's provider fiber** into a string used as the epoch, then hands it to `_setEpoch()` for comparison.\n\nIf this were a boolean instead (all deps present = true, missing = false), what capability would be lost? Give a concrete DSH scenario that would break."
+      },
+      "context": [
+        { "path": "vendor/cordis/src/fiber.ts", "lineStart": 611, "lineEnd": 639, "note": "_refresh 拼 epoch 与 _setEpoch 比较" },
+        { "path": "vendor/cordis/src/fiber.ts", "lineStart": 646, "lineEnd": 673, "note": "_reload" }
+      ],
+      "rubric": [
+        "指出布尔值只能表达「有/无」，无法表达「换了一个提供方」——依赖始终存在但实现被替换时，布尔值不变，插件不会重载",
+        "解释 uid 单调递增且每个 fiber 唯一，因此新提供方的 uid 必然不同于旧的，指纹随之改变，自动触发卸载+重载",
+        "举出实际场景：热替换某个服务提供方（如换一个 LLM 适配器、把本地 fs 换成远程沙箱 fs、HMR 重载了提供方所在的插件），消费方需要重新拿到新实现",
+        "（加分）指出消费方持有的是旧实现的引用/闭包，不重载就会继续用已经卸载的旧服务，属于悬垂引用"
+      ],
+      "reference": "布尔值只能区分「依赖在/不在」，无法区分「依赖换人了」。而 uid 由 `registry.counter` 单调递增分配，每个 fiber 唯一，所以只要提供方换了一个 fiber，拼出来的指纹字符串必然改变，`_setEpoch` 检测到差异就会走一次卸载再重载。失效场景：把 `ctx.fs` 的本地实现换成 E2B 远程沙箱实现 —— 新提供方挂载、旧的卸载，期间「fs 服务存在」这个布尔判断始终为 true，消费方不会重载，于是继续持有已卸载的旧实现的引用，写文件全部落到本地而不是沙箱里。同理还有 HMR：改了 LLM 适配器的代码，该插件重载产生新 fiber，所有 `inject(['llm'])` 的消费方必须跟着重载才能拿到新实现。用 uid 指纹，这套「依赖变更即自动重载」不需要任何插件写监听代码。"
+    }
+  ]
+}

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeepSeek Harness 源码精读</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">DSH</span>
+    <span class="brand-text" data-i18n="brand">源码精读 Roadmap</span>
+  </div>
+
+  <div class="topbar-progress">
+    <div class="pbar"><div class="pbar-fill" id="globalBar"></div></div>
+    <span class="pbar-label" id="globalLabel">0 / 0</span>
+  </div>
+
+  <div class="topbar-actions">
+    <div class="searchbox">
+      <input id="searchInput" type="search" placeholder="搜索全仓源码…" data-i18n-ph="searchPlaceholder" autocomplete="off">
+      <label class="regex-toggle" title="正则模式">
+        <input type="checkbox" id="searchRegex"><span>.*</span>
+      </label>
+    </div>
+    <button class="btn-ghost" id="themeToggle" title="切换主题">◐</button>
+    <div class="lang-switch">
+      <button class="lang-btn is-active" data-lang="zh">中</button>
+      <button class="lang-btn" data-lang="en">EN</button>
+    </div>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- 章节目录 -->
+  <nav class="pane pane-toc" id="tocPane">
+    <div class="pane-head">
+      <span data-i18n="tocTitle">课程目录</span>
+      <button class="btn-ghost btn-tiny" id="resetProgress" title="重置进度">⟲</button>
+    </div>
+    <ol class="toc" id="toc"></ol>
+  </nav>
+
+  <div class="splitter" data-target="tocPane"></div>
+
+  <!-- 教程 -->
+  <section class="pane pane-lesson" id="lessonPane">
+    <article class="lesson" id="lesson">
+      <div class="loading-block"><span class="spinner"></span> 载入中…</div>
+    </article>
+
+    <section class="quiz" id="quiz" hidden>
+      <h2 class="quiz-title" data-i18n="quizTitle">检验：你真的读懂了吗</h2>
+      <div class="quiz-choice" id="quizChoice"></div>
+      <div class="quiz-open" id="quizOpen"></div>
+    </section>
+
+    <footer class="lesson-foot" id="lessonFoot"></footer>
+  </section>
+
+  <div class="splitter" data-target="lessonPane"></div>
+
+  <!-- IDE -->
+  <section class="pane pane-ide" id="idePane">
+    <div class="ide-tabs">
+      <button class="ide-tab is-active" data-view="tree" data-i18n="tabTree">文件树</button>
+      <button class="ide-tab" data-view="code" data-i18n="tabCode">源码</button>
+      <button class="ide-tab" data-view="search" data-i18n="tabSearch">搜索</button>
+      <span class="ide-path" id="idePath"></span>
+    </div>
+
+    <div class="ide-body">
+      <div class="ide-view is-active" id="viewTree">
+        <ul class="tree" id="tree"></ul>
+      </div>
+
+      <div class="ide-view" id="viewCode">
+        <div class="code-empty" data-i18n="codeEmpty">点击教程里的源码引用，或从文件树打开一个文件。</div>
+      </div>
+
+      <div class="ide-view" id="viewSearch">
+        <div class="search-meta" id="searchMeta"></div>
+        <ul class="search-hits" id="searchHits"></ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div class="symbol-pop" id="symbolPop" hidden></div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="/static/highlight.js"></script>
+<script src="/static/markdown.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

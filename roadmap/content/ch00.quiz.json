@@ -1,0 +1,119 @@
+{
+  "choice": [
+    {
+      "id": "c1",
+      "prompt": {
+        "zh": "DSH 文档说「不存在需要打补丁的特权内核」。下面哪一项**不是**这句话的直接后果？",
+        "en": "DSH's docs say \"there is no privileged core to patch\". Which of these is **not** a direct consequence?"
+      },
+      "options": {
+        "zh": [
+          "agent loop 本身也是一个可以被配置替换的插件",
+          "扩展 DSH 的方式是把插件挂到其他插件旁边，而不是修改核心代码",
+          "所有插件必须由 DeepSeek 官方审核后才能加载",
+          "每一项注册都是副作用，会在所属插件卸载时被撤销"
+        ],
+        "en": [
+          "The agent loop itself is a plugin that can be replaced from configuration",
+          "You extend DSH by mounting plugins beside others, not by modifying core code",
+          "Every plugin must be reviewed by DeepSeek before it can be loaded",
+          "Every registration is an effect, revoked when its owning plugin unloads"
+        ]
+      },
+      "answer": 2,
+      "explain": {
+        "zh": "前两项和第四项都直接出自 {{src:docs/architecture.zh.md#L11-L13|architecture.zh.md}}。「官方审核」与插件架构毫无关系 —— 恰恰相反，无特权内核的设计意味着任何人都能把自己的插件挂进树里，`packages/extensions` 甚至让模型在运行时自己挂载插件。",
+        "en": "The first, second, and fourth come straight from {{src:docs/architecture.md#L11-L13|architecture.md}}. \"Official review\" has nothing to do with the plugin architecture — quite the opposite: no privileged core means anyone can mount their own plugin into the tree, and `packages/extensions` even lets the model mount plugins at runtime."
+      }
+    },
+    {
+      "id": "c2",
+      "prompt": {
+        "zh": "关于会话日志（session log），哪个说法符合 DSH 的设计？",
+        "en": "Which statement about the session log matches DSH's design?"
+      },
+      "options": {
+        "zh": [
+          "它是聊天界面的渲染缓存，模型上下文另有来源",
+          "它是模型可见上下文的唯一来源，任何抵达模型请求的内容都必须能从它重建",
+          "它只记录用户消息和模型的最终回复，流式分片不入日志",
+          "它是可选的调试功能，关掉不影响 agent 运行"
+        ],
+        "en": [
+          "It is a render cache for the chat UI; model context comes from elsewhere",
+          "It is the sole source of model-visible context — anything reaching a model request must be reconstructable from it",
+          "It records only user messages and final model replies; streamed chunks are not logged",
+          "It is an optional debugging feature; turning it off does not affect the agent"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "这就是「**模型可见 ⟺ 已记录**」不变量。`deriveMessages()` 从日志投影出模型历史，`assistant/chunk` 原始分片也保留在日志里以保证回放与 UI 保真 —— 所以第三项也是错的。第 4 章会展开。",
+        "en": "This is the **model-visible ⟺ logged** invariant. `deriveMessages()` projects model history from the log, and raw `assistant/chunk` events are kept for replay and UI fidelity — which is why the third option is also wrong. Chapter 4 expands on this."
+      }
+    },
+    {
+      "id": "c3",
+      "prompt": {
+        "zh": "你想知道 `ctx.shell` 这个服务是哪个包提供的。按本章给的检索路径，最快的一步是？",
+        "en": "You want to know which package provides the `ctx.shell` service. Per this chapter's lookup paths, what is the fastest first step?"
+      },
+      "options": {
+        "zh": [
+          "在整个仓库 grep `ctx.shell`，逐个看命中",
+          "去 `packages/shell/README.md`，包组 README 负责包与 ctx 键的映射",
+          "读 `pnpm-lock.yaml` 找依赖关系",
+          "打开 `packages/core/` 看核心服务列表"
+        ],
+        "en": [
+          "grep `ctx.shell` across the repo and read every hit",
+          "Open `packages/shell/README.md` — group READMEs own the package-to-ctx-key mapping",
+          "Read `pnpm-lock.yaml` to trace dependencies",
+          "Open `packages/core/` and look at the core service list"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "{{src:packages/README.zh.md|packages/README.zh.md}} 明确写了「**组 README 负责包／ctx 键映射**」。grep 也能找到但噪音大；`packages/core/` 只有 session/system-prompt/tools/agent 那几个主干服务，shell 不在其中。",
+        "en": "{{src:packages/README.md|packages/README.md}} states it explicitly: \"**Group READMEs own the package / ctx key mapping.**\" grep works but is noisy; `packages/core/` only holds the spine services (session, system-prompt, tools, agent) and shell is not among them."
+      }
+    }
+  ],
+  "open": [
+    {
+      "id": "o1",
+      "prompt": {
+        "zh": "本章说 Cordis 框架内核只有 2693 行，而 DSH 产品代码有 20 万行以上。**为什么这门课要先花两章读那 2693 行，而不是直接从 agent loop 读起？** 请结合「没有特权内核」这个设计来回答。",
+        "en": "This chapter notes that the Cordis core is only 2693 lines while DSH's product code exceeds 200k. **Why does this course spend two chapters on those 2693 lines instead of starting from the agent loop?** Answer in terms of the \"no privileged core\" design."
+      },
+      "context": [
+        { "path": "docs/architecture.zh.md", "lineStart": 9, "lineEnd": 15, "note": "Cordis 与无特权内核" },
+        { "path": "AGENTS.md", "lineStart": 1, "lineEnd": 5, "note": "一切皆插件" }
+      ],
+      "rubric": [
+        "指出 agent loop 本身也只是一棵插件树上的一个插件，不是特权入口，因此没有「从主循环读起」这条路可走",
+        "指出 DSH 的控制流不体现在函数调用链里，而体现在插件装配、服务解析与事件分发上 —— 这些机制全部由 Cordis 定义",
+        "指出读懂框架后，20 万行会变成「框架上的应用」，可按同一套模式理解，属于杠杆率最高的投入",
+        "能提到具体机制名词（插件/服务/事件/effect/生命周期）中的至少两个，说明框架内核提供的到底是什么"
+      ],
+      "reference": "因为 DSH 里不存在一个「主函数」可以作为阅读起点。agent loop 只是挂在插件树上的又一个插件（`core/agent-loop`），它和模型适配器、工具注册表在结构上是平级的。真正把这些插件连成一个运行系统的，是 Cordis 提供的三样东西：插件装配与生命周期（Fiber）、服务解析（ctx 上的服务名如何找到实现）、事件分发（waterfall/serial/bail）。这三样都定义在那 2693 行里。不先读它们，读 agent-loop 时会看到大量 `ctx.on(...)`、`ctx.effect(...)`、`ctx.inject(...)` 而不知道它们意味着什么控制流。读懂之后，剩下 20 万行就都是同一套模式的重复应用。"
+    },
+    {
+      "id": "o2",
+      "prompt": {
+        "zh": "假设你要给 DSH 加一个功能：**每次模型请求前，自动把用户最近三天的工作笔记注入上下文**。根据本章讲的「模型可见 ⟺ 已记录」不变量，这个功能除了「写一个插件在请求前注入内容」之外，还必然要求你做什么？为什么这条约束是必要的而不是多余的？",
+        "en": "Suppose you want to add a feature to DSH: **before every model request, automatically inject the user's work notes from the last three days into context.** Given the \"model-visible ⟺ logged\" invariant, what else does this feature necessarily require beyond \"write a plugin that injects content before the request\"? And why is that constraint necessary rather than redundant?"
+      },
+      "context": [
+        { "path": "docs/architecture.zh.md", "lineStart": 96, "lineEnd": 100, "note": "会话日志与模型可见即已记录" }
+      ],
+      "rubric": [
+        "指出必须新增一个会话事件类型（扩展 SessionEventMap），并让注入的内容从日志渲染出来",
+        "解释必要性：模型历史是从日志投影出来的（deriveMessages），不入日志的内容在重新加载、fork、恢复后就消失了",
+        "指出后果：同一个会话在恢复前后会看到不同的上下文，模型行为不可复现，transcript 与实际请求不一致",
+        "（加分）提到运行时不变量会断言这件事，所以这不是「建议」而是会被检查的硬约束"
+      ],
+      "reference": "必须为这项注入新增一个会话事件类型：扩展 `SessionEventMap`，把注入的笔记作为一条持久事件写入日志，并让模型历史从该事件渲染。原因是模型历史并非由插件直接拼装，而是由 `deriveMessages()` 从会话日志投影得到。如果注入内容只存在于内存中，那么会话一旦恢复、fork 或回放，这段上下文就凭空消失，模型看到的历史与它当初实际收到的请求不一致 —— 调试、复现、遥测全部失真。DSH 用一条运行时不变量断言「抵达模型请求的一切都能从日志重建」，所以这是硬约束而非风格建议。"
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "title": {
+    "zh": "DeepSeek Harness 源码精读",
+    "en": "DeepSeek Harness: A Source Reading Course"
+  },
+  "chapters": [
+    {
+      "id": "ch00", "no": 0, "ready": true,
+      "stage": { "zh": "起步", "en": "Getting started" },
+      "title": { "zh": "先跑起来，再看地图", "en": "Run it first, then read the map" }
+    },
+    {
+      "id": "ch01", "no": 1, "ready": true,
+      "stage": { "zh": "地基", "en": "Foundation" },
+      "title": { "zh": "Cordis 插件模型：Context、Fiber 与可撤销副作用", "en": "The Cordis plugin model: Context, Fiber, and revocable effects" }
+    },
+    {
+      "id": "ch02", "no": 2, "ready": false,
+      "stage": { "zh": "地基", "en": "Foundation" },
+      "title": { "zh": "服务与事件：ctx 上的能力如何解析与分发", "en": "Services and events" }
+    },
+    {
+      "id": "ch03", "no": 3, "ready": false,
+      "stage": { "zh": "装配", "en": "Assembly" },
+      "title": { "zh": "启动链：从 dsh web 到一棵插件树", "en": "The boot chain" }
+    },
+    {
+      "id": "ch04", "no": 4, "ready": false,
+      "stage": { "zh": "状态", "en": "State" },
+      "title": { "zh": "会话日志：模型可见即已记录", "en": "The session log" }
+    },
+    {
+      "id": "ch05", "no": 5, "ready": false,
+      "stage": { "zh": "心脏", "en": "The heart" },
+      "title": { "zh": "Agent Loop：一次轮次的完整生命周期", "en": "The agent loop" }
+    },
+    {
+      "id": "ch06", "no": 6, "ready": false,
+      "stage": { "zh": "模型", "en": "Model" },
+      "title": { "zh": "LLM 层：流式协议与适配器契约", "en": "The LLM layer" }
+    },
+    {
+      "id": "ch07", "no": 7, "ready": false,
+      "stage": { "zh": "上下文", "en": "Context" },
+      "title": { "zh": "提示词组装、skill 与压缩", "en": "Prompt assembly, skills, and compaction" }
+    },
+    {
+      "id": "ch08", "no": 8, "ready": false,
+      "stage": { "zh": "工具", "en": "Tools" },
+      "title": { "zh": "工具注册与受保护的执行流水线", "en": "Tool registry and the guarded pipeline" }
+    },
+    {
+      "id": "ch09", "no": 9, "ready": false,
+      "stage": { "zh": "工具", "en": "Tools" },
+      "title": { "zh": "能力 seam 与安全边界", "en": "Capability seams and the security boundary" }
+    },
+    {
+      "id": "ch10", "no": 10, "ready": false,
+      "stage": { "zh": "编排", "en": "Orchestration" },
+      "title": { "zh": "subagent、workflow 与后台任务", "en": "Subagents, workflows, and jobs" }
+    },
+    {
+      "id": "ch11", "no": 11, "ready": false,
+      "stage": { "zh": "边界", "en": "Boundary" },
+      "title": { "zh": "概要：typert RPC 与 host/client 分层", "en": "Overview: typert RPC and the host/client split" }
+    },
+    {
+      "id": "ch12", "no": 12, "ready": false,
+      "stage": { "zh": "产出", "en": "Building" },
+      "title": { "zh": "二次开发：把研究问题落到扩展点上", "en": "Building on it" }
+    }
+  ]
+}
