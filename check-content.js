@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* 内容校验：写完/改完章节后跑一次。
- *   node roadmap/check-content.js
+ *   node check-content.js
  *
  * 检查三件事：
  *   1. 所有源码引用（行内 {{src:}}、块级 srcref、插图 node-hit、题目 context）
@@ -13,15 +13,15 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 
-const HERE = __dirname;
-const REPO = path.resolve(HERE, '../deepseek-harness');
-const CONTENT = path.join(HERE, 'content');
+const ROOT = __dirname;
+const REPO = path.join(ROOT, 'deepseek-harness');
+const CONTENT = path.join(ROOT, 'content');
 
 const sandbox = { window: {}, console };
 sandbox.window.window = sandbox.window;
 vm.createContext(sandbox);
 for (const file of ['static/highlight.js', 'static/markdown.js']) {
-  vm.runInContext(fs.readFileSync(path.join(HERE, file), 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, file), 'utf8'), sandbox);
 }
 const { MD } = sandbox.window;
 
@@ -32,7 +32,7 @@ const fail = (msg) => { console.log(`  ✗ ${msg}`); problems++; };
 function checkRef(rel, start, end, where) {
   refs++;
   const abs = path.join(REPO, rel);
-  if (!fs.existsSync(abs)) return fail(`${where}: 文件不存在 — ${rel}`);
+  if (!fs.existsSync(abs)) return fail(`${where}: 文件不存在：${rel}`);
   if (!start) return;
   const lines = fs.readFileSync(abs, 'utf8').split('\n').length;
   if (+start > lines || +end > lines) {

@@ -33,7 +33,7 @@
           "A → B → C, started concurrently",
           "C → B → A, serially (each waits for the previous to finish)",
           "C → B → A, started concurrently without waiting",
-          "Unspecified — depends on which returns first"
+          "Unspecified, depends on which returns first"
         ]
       },
       "answer": 1,
@@ -64,8 +64,8 @@
       },
       "answer": 1,
       "explain": {
-        "zh": "构造函数返回对象时，`new` 表达式的结果就是那个对象。所以你手里的 `ctx` 从来不是 Context 实例本身。这正是 `ctx.tools`、`ctx.llm` 能「服务注册后凭空出现」的原因 —— 读属性走的是代理的 get 陷阱。至于继承，恰恰相反：{{src:vendor/cordis/src/context.ts#L99-L107|extend()}} 用 `Object.create` 让子上下文原型继承父级。",
-        "en": "When a constructor returns an object, that object is the result of `new`. So the `ctx` you hold is never the Context instance itself. That is exactly why `ctx.tools` and `ctx.llm` can materialize once their service registers — reads go through the proxy's get trap. As for inheritance, the opposite is true: {{src:vendor/cordis/src/context.ts#L99-L107|extend()}} uses `Object.create` so a child context prototypally inherits its parent."
+        "zh": "构造函数返回对象时，`new` 表达式的结果就是那个对象。所以你手里的 `ctx` 从来不是 Context 实例本身。这正是 `ctx.tools`、`ctx.llm` 能「服务注册后凭空出现」的原因：读属性走的是代理的 get 陷阱。至于继承，恰恰相反：{{src:vendor/cordis/src/context.ts#L99-L107|extend()}} 用 `Object.create` 让子上下文原型继承父级。",
+        "en": "When a constructor returns an object, that object is the result of `new`. So the `ctx` you hold is never the Context instance itself. That is exactly why `ctx.tools` and `ctx.llm` can materialize once their service registers, because reads go through the proxy's get trap. As for inheritance, the opposite is true: {{src:vendor/cordis/src/context.ts#L99-L107|extend()}} uses `Object.create` so a child context prototypally inherits its parent."
       }
     }
   ],
@@ -84,9 +84,9 @@
         "指出核心问题：在 execute() 运行期间，这个 effect 对 fiber 的卸载流程是不可见的",
         "构造出具体的重入场景：effect body 内部（同步或异步）触发了所属 fiber 的卸载 / 父插件卸载，此时 _unload 遍历 _disposables 时看不到这个 effect",
         "指出后果是资源泄漏：body 已经打开了 socket/定时器/监听器，但清理函数永远不会被调用",
-        "（加分）意识到异步 body 让窗口更大 —— setup 期间的任何时刻都可能到达卸载请求，这也是 setupBarrier / disposeAfter 存在的原因"
+        "（加分）意识到异步 body 让窗口更大，setup 期间的任何时刻都可能到达卸载请求，这也是 setupBarrier / disposeAfter 存在的原因"
       ],
-      "reference": "对调后，在 `execute()` 执行期间这个 effect 对卸载流程是不可见的。具体场景：插件 A 的 effect body 是 async，里面 `await` 了一次网络请求并在之前已经打开了一个 socket；就在这个 await 期间，父插件被卸载，`_unload()` 遍历 `_disposables` 准备清理 —— 但因为 wrapper 还没登记，这个 effect 不在列表里，`_unload` 顺利跑完并把 fiber 标记为已卸载。随后 body 恢复执行、返回 disposer，而此时已经没有任何人会调用它，socket 永久泄漏。同步场景也存在：body 内部直接调用 `ctx.fiber.dispose()` 或触发了某个导致父级卸载的事件，同样漏掉自己。源码注释把这点写得很直白：「Make the effect visible to a reentrant owner unload before execute() runs any plugin code.」先登记后执行，最坏情况只是清理一个还没完全建立的资源，而反过来是必然泄漏。"
+      "reference": "对调后，在 `execute()` 执行期间这个 effect 对卸载流程是不可见的。具体场景：插件 A 的 effect body 是 async，里面 `await` 了一次网络请求并在之前已经打开了一个 socket；就在这个 await 期间，父插件被卸载，`_unload()` 遍历 `_disposables` 准备清理，但因为 wrapper 还没登记，这个 effect 不在列表里，`_unload` 顺利跑完并把 fiber 标记为已卸载。随后 body 恢复执行、返回 disposer，而此时已经没有任何人会调用它，socket 永久泄漏。同步场景也存在：body 内部直接调用 `ctx.fiber.dispose()` 或触发了某个导致父级卸载的事件，同样漏掉自己。源码注释把这点写得很直白：「Make the effect visible to a reentrant owner unload before execute() runs any plugin code.」先登记后执行，最坏情况只是清理一个还没完全建立的资源，而反过来是必然泄漏。"
     },
     {
       "id": "o2",
@@ -103,10 +103,10 @@
         "指出 effect 内部的多个 disposer 来自同一段 setup 代码，彼此有明确的建立顺序，因此存在拆除顺序依赖，必须串行倒序",
         "指出不同 effect 之间被假定为相互独立、没有拆除顺序依赖，所以可以并发",
         "点出这是框架用 API 形状表达的设计约束：有顺序依赖的清理逻辑本来就应该写在同一个 effect（例如同一个生成器）里",
-        "（加分）注意到 _unload 里每个 disposer 各自 try/catch 只记日志，即一个 effect 清理失败不阻断其他 —— 卸载路径是尽力而为的",
+        "（加分）注意到 _unload 里每个 disposer 各自 try/catch 只记日志，即一个 effect 清理失败不阻断其他，卸载路径是尽力而为的",
         "（加分）注意到 fiber 级虽然并发，但遍历顺序仍是倒序（DisposableList.clear() 里的 reverse()），并发只是不等待彼此完成"
       ],
-      "reference": "一个 effect 内部的 disposer 是同一段 setup 顺序产生的：先开数据库、再起定时器、再订阅事件，那么拆除必须严格反过来且逐个等待，否则会出现「数据库已关但订阅还在回调」这类竞态。而不同 effect 之间，框架**假定它们相互独立** —— 这不是乐观估计，而是框架用 API 形状强加的约束：任何有拆除顺序依赖的清理逻辑，作者本来就应该写进同一个 effect 的生成器里，从而落进串行分支。既然独立，并发拆除就是纯粹的性能收益。补充两点：`_unload` 遍历顺序仍是倒序（`DisposableList.clear()` 里的 `reverse()`），并发只是不互相等待；每个 disposer 外面都套了 try/catch 且只 `logger.error`，所以一个插件的清理失败不会阻断整棵树的卸载 —— 卸载路径必须是尽力而为的。"
+      "reference": "一个 effect 内部的 disposer 是同一段 setup 顺序产生的：先开数据库、再起定时器、再订阅事件，那么拆除必须严格反过来且逐个等待，否则会出现「数据库已关但订阅还在回调」这类竞态。而不同 effect 之间，框架**假定它们相互独立**。这不是乐观估计，而是框架用 API 形状强加的约束：任何有拆除顺序依赖的清理逻辑，作者本来就应该写进同一个 effect 的生成器里，从而落进串行分支。既然独立，并发拆除就是纯粹的性能收益。补充两点：`_unload` 遍历顺序仍是倒序（`DisposableList.clear()` 里的 `reverse()`），并发只是不互相等待；每个 disposer 外面都套了 try/catch 且只 `logger.error`，所以一个插件的清理失败不会阻断整棵树的卸载。卸载路径必须是尽力而为的。"
     },
     {
       "id": "o3",
@@ -119,12 +119,12 @@
         { "path": "vendor/cordis/src/fiber.ts", "lineStart": 646, "lineEnd": 673, "note": "_reload" }
       ],
       "rubric": [
-        "指出布尔值只能表达「有/无」，无法表达「换了一个提供方」——依赖始终存在但实现被替换时，布尔值不变，插件不会重载",
+        "指出布尔值只能表达「有/无」，无法表达「换了一个提供方」。依赖始终存在但实现被替换时，布尔值不变，插件不会重载",
         "解释 uid 单调递增且每个 fiber 唯一，因此新提供方的 uid 必然不同于旧的，指纹随之改变，自动触发卸载+重载",
         "举出实际场景：热替换某个服务提供方（如换一个 LLM 适配器、把本地 fs 换成远程沙箱 fs、HMR 重载了提供方所在的插件），消费方需要重新拿到新实现",
         "（加分）指出消费方持有的是旧实现的引用/闭包，不重载就会继续用已经卸载的旧服务，属于悬垂引用"
       ],
-      "reference": "布尔值只能区分「依赖在/不在」，无法区分「依赖换人了」。而 uid 由 `registry.counter` 单调递增分配，每个 fiber 唯一，所以只要提供方换了一个 fiber，拼出来的指纹字符串必然改变，`_setEpoch` 检测到差异就会走一次卸载再重载。失效场景：把 `ctx.fs` 的本地实现换成 E2B 远程沙箱实现 —— 新提供方挂载、旧的卸载，期间「fs 服务存在」这个布尔判断始终为 true，消费方不会重载，于是继续持有已卸载的旧实现的引用，写文件全部落到本地而不是沙箱里。同理还有 HMR：改了 LLM 适配器的代码，该插件重载产生新 fiber，所有 `inject(['llm'])` 的消费方必须跟着重载才能拿到新实现。用 uid 指纹，这套「依赖变更即自动重载」不需要任何插件写监听代码。"
+      "reference": "布尔值只能区分「依赖在/不在」，无法区分「依赖换人了」。而 uid 由 `registry.counter` 单调递增分配，每个 fiber 唯一，所以只要提供方换了一个 fiber，拼出来的指纹字符串必然改变，`_setEpoch` 检测到差异就会走一次卸载再重载。失效场景：把 `ctx.fs` 的本地实现换成 E2B 远程沙箱实现。新提供方挂载、旧的卸载，期间「fs 服务存在」这个布尔判断始终为 true，消费方不会重载，于是继续持有已卸载的旧实现的引用，写文件全部落到本地而不是沙箱里。同理还有 HMR：改了 LLM 适配器的代码，该插件重载产生新 fiber，所有 `inject(['llm'])` 的消费方必须跟着重载才能拿到新实现。用 uid 指纹，这套「依赖变更即自动重载」不需要任何插件写监听代码。"
     }
   ]
 }

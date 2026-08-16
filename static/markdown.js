@@ -1,4 +1,4 @@
-/* 教程正文的 Markdown 渲染器 —— 零依赖。
+/* 教程正文的 Markdown 渲染器，零依赖。
    在标准 Markdown 之上加了三种自定义语法，都是为了和右侧 IDE 联动：
 
      行内源码引用   {{src:vendor/cordis/src/fiber.ts#L418-L561|ctx.effect()}}

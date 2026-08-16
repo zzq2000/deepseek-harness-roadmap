@@ -1,4 +1,4 @@
-/* DeepSeek Harness 源码精读 —— 主逻辑
+/* DeepSeek Harness 源码精读：主逻辑
    左侧教程与右侧 IDE 的联动全部经由 openSource()：
    教程里的任何源码引用都带 data-path / data-start / data-end，点击即定位。 */
 
@@ -349,7 +349,7 @@
     const kicker = `<div class="chapter-kicker">${chapter?.stage?.[state.lang] || ''} · ${t('chapterWord').replace('%s', chapter?.no)}</div>`;
     lesson.innerHTML = kicker + window.MD.render(data.markdown)
       + (data.fallback ? '<div class="callout callout-warn"><div class="callout-title">▲ Fallback</div>'
-        + '<p>English version not written yet — showing the Chinese text.</p></div>' : '');
+        + '<p>English version not written yet. Showing the Chinese text.</p></div>' : '');
     wireSourceLinks(lesson);
     $('lessonPane').scrollTop = 0;
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DeepSeek Harness 学习 Roadmap —— 本地服务。
+"""DeepSeek Harness 学习 Roadmap 的本地服务。
 
 零第三方依赖：仅使用 Python 标准库。启动后浏览器访问 http://127.0.0.1:5173。
 
@@ -34,12 +34,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-HERE = Path(__file__).resolve().parent
-PROJECT = HERE.parent
-REPO = PROJECT / "deepseek-harness"
-CONTENT = HERE / "content"
-STATIC = HERE / "static"
-PROGRESS_FILE = HERE / "progress.json"
+ROOT = Path(__file__).resolve().parent
+REPO = ROOT / "deepseek-harness"
+CONTENT = ROOT / "content"
+STATIC = ROOT / "static"
+PROGRESS_FILE = ROOT / "progress.json"
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("ROADMAP_PORT", "5173"))
@@ -59,9 +58,9 @@ _progress_lock = threading.Lock()
 # ---------------------------------------------------------------- 环境变量
 
 def load_env() -> dict[str, str]:
-    """解析项目根目录的 .env（不依赖 python-dotenv）。"""
+    """解析仓库根目录的 .env（不依赖 python-dotenv）。"""
     env: dict[str, str] = {}
-    path = PROJECT / ".env"
+    path = ROOT / ".env"
     if not path.exists():
         return env
     for raw in path.read_text(encoding="utf-8").splitlines():

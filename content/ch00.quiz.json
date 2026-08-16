@@ -22,8 +22,8 @@
       },
       "answer": 2,
       "explain": {
-        "zh": "前两项和第四项都直接出自 {{src:docs/architecture.zh.md#L11-L13|architecture.zh.md}}。「官方审核」与插件架构毫无关系 —— 恰恰相反，无特权内核的设计意味着任何人都能把自己的插件挂进树里，`packages/extensions` 甚至让模型在运行时自己挂载插件。",
-        "en": "The first, second, and fourth come straight from {{src:docs/architecture.md#L11-L13|architecture.md}}. \"Official review\" has nothing to do with the plugin architecture — quite the opposite: no privileged core means anyone can mount their own plugin into the tree, and `packages/extensions` even lets the model mount plugins at runtime."
+        "zh": "前两项和第四项都直接出自 {{src:docs/architecture.zh.md#L11-L13|architecture.zh.md}}。「官方审核」与插件架构毫无关系。恰恰相反，无特权内核的设计意味着任何人都能把自己的插件挂进树里，`packages/extensions` 甚至让模型在运行时自己挂载插件。",
+        "en": "The first, second, and fourth come straight from {{src:docs/architecture.md#L11-L13|architecture.md}}. \"Official review\" has nothing to do with the plugin architecture. Quite the opposite: no privileged core means anyone can mount their own plugin into the tree, and `packages/extensions` even lets the model mount plugins at runtime."
       }
     },
     {
@@ -41,15 +41,15 @@
         ],
         "en": [
           "It is a render cache for the chat UI; model context comes from elsewhere",
-          "It is the sole source of model-visible context — anything reaching a model request must be reconstructable from it",
+          "It is the sole source of model-visible context, so anything reaching a model request must be reconstructable from it",
           "It records only user messages and final model replies; streamed chunks are not logged",
           "It is an optional debugging feature; turning it off does not affect the agent"
         ]
       },
       "answer": 1,
       "explain": {
-        "zh": "这就是「**模型可见 ⟺ 已记录**」不变量。`deriveMessages()` 从日志投影出模型历史，`assistant/chunk` 原始分片也保留在日志里以保证回放与 UI 保真 —— 所以第三项也是错的。第 4 章会展开。",
-        "en": "This is the **model-visible ⟺ logged** invariant. `deriveMessages()` projects model history from the log, and raw `assistant/chunk` events are kept for replay and UI fidelity — which is why the third option is also wrong. Chapter 4 expands on this."
+        "zh": "这就是「**模型可见 ⟺ 已记录**」不变量。`deriveMessages()` 从日志投影出模型历史，`assistant/chunk` 原始分片也保留在日志里以保证回放与 UI 保真，所以第三项也是错的。第 4 章会展开。",
+        "en": "This is the **model-visible ⟺ logged** invariant. `deriveMessages()` projects model history from the log, and raw `assistant/chunk` events are kept for replay and UI fidelity, which is why the third option is also wrong. Chapter 4 expands on this."
       }
     },
     {
@@ -67,7 +67,7 @@
         ],
         "en": [
           "grep `ctx.shell` across the repo and read every hit",
-          "Open `packages/shell/README.md` — group READMEs own the package-to-ctx-key mapping",
+          "Open `packages/shell/README.md`, since group READMEs own the package-to-ctx-key mapping",
           "Read `pnpm-lock.yaml` to trace dependencies",
           "Open `packages/core/` and look at the core service list"
         ]
@@ -92,7 +92,7 @@
       ],
       "rubric": [
         "指出 agent loop 本身也只是一棵插件树上的一个插件，不是特权入口，因此没有「从主循环读起」这条路可走",
-        "指出 DSH 的控制流不体现在函数调用链里，而体现在插件装配、服务解析与事件分发上 —— 这些机制全部由 Cordis 定义",
+        "指出 DSH 的控制流不体现在函数调用链里，而体现在插件装配、服务解析与事件分发上，这些机制全部由 Cordis 定义",
         "指出读懂框架后，20 万行会变成「框架上的应用」，可按同一套模式理解，属于杠杆率最高的投入",
         "能提到具体机制名词（插件/服务/事件/effect/生命周期）中的至少两个，说明框架内核提供的到底是什么"
       ],
@@ -113,7 +113,7 @@
         "指出后果：同一个会话在恢复前后会看到不同的上下文，模型行为不可复现，transcript 与实际请求不一致",
         "（加分）提到运行时不变量会断言这件事，所以这不是「建议」而是会被检查的硬约束"
       ],
-      "reference": "必须为这项注入新增一个会话事件类型：扩展 `SessionEventMap`，把注入的笔记作为一条持久事件写入日志，并让模型历史从该事件渲染。原因是模型历史并非由插件直接拼装，而是由 `deriveMessages()` 从会话日志投影得到。如果注入内容只存在于内存中，那么会话一旦恢复、fork 或回放，这段上下文就凭空消失，模型看到的历史与它当初实际收到的请求不一致 —— 调试、复现、遥测全部失真。DSH 用一条运行时不变量断言「抵达模型请求的一切都能从日志重建」，所以这是硬约束而非风格建议。"
+      "reference": "必须为这项注入新增一个会话事件类型：扩展 `SessionEventMap`，把注入的笔记作为一条持久事件写入日志，并让模型历史从该事件渲染。原因是模型历史并非由插件直接拼装，而是由 `deriveMessages()` 从会话日志投影得到。如果注入内容只存在于内存中，那么会话一旦恢复、fork 或回放，这段上下文就凭空消失，模型看到的历史与它当初实际收到的请求不一致，调试、复现、遥测全部失真。DSH 用一条运行时不变量断言「抵达模型请求的一切都能从日志重建」，所以这是硬约束而非风格建议。"
     }
   ]
 }

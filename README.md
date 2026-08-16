@@ -1,21 +1,196 @@
-# Deepseek Harness 学习
+# DeepSeek Harness 源码精读
 
-## 目标
+一个本地运行的交互式课程，目标是**完全读懂 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的源码，并能基于它做二次开发**。
 
-Fork并拉取 deepseek harness（简称DSH）仓库，然后建立一个roadmap网页，目标是让我完全读懂 deepseek harness 的源码，并且能够基于源码进行二次开发。
+左侧是教程，右侧是 IDE（文件树 + 源码）。教程里的每一处源码引用都能点开，右侧立刻定位并高亮到具体行。每章末尾有选择题和开放问答；开放题会连同**从仓库实时抽取的源码上下文**一起送去 DeepSeek 批改，指出你漏了什么、说错了什么。
 
-## Deepseek Harness仓库
+```
+┌──────────┬────────────────────┬──────────────────────┐
+│ 课程目录 │ 教程正文           │ 文件树 / 源码 / 搜索 │
+│ 进度追踪 │ 源码引用（可点击） │ 语法高亮 + 行号      │
+│          │ 思考题 + 判卷      │ 符号跳转             │
+└──────────┴────────────────────┴──────────────────────┘
+```
 
-* 官方仓库：https://github.com/deepseek-ai/deepseek-harness
-* 我的Fork：https://github.com/zzq2000/deepseek-harness
+---
 
-## Roadmap 要求
+## 快速开始
 
-* HTML格式，与源码相互对照，注意美观和可交互性。整体的样式应该是：左侧是教程，右侧类似IDE（文件树加源码）
-* 支持中英文切换。
-* 从零开始，逐步深入，易于理解。包含学习进度追踪.
-* 每个章节后提一些思考的问题，检查我是否真的理解了。我在回答完这些问题后，应该可以调用Deepseek的API能够判断我是否回答正确。API调用相关在.env中。注意，每个问题都有对应的源码上下文，在判断的时候需要放入context中。
+```sh
+git clone --recursive https://github.com/zzq2000/deepseek-harness-roadmap.git
+cd deepseek-harness-roadmap
+python3 serve.py
+```
 
-## 二次开发
+然后打开 http://127.0.0.1:5173，`Ctrl-C` 停止。
 
-在完成整个Harness学习之后，我应该能够理解整个DSH的框架，然后在Agent的辅助下完成新的plugin。可以是新的工具调用、自进化、记忆机制、多智能体排布等研究问题。
+**忘了 `--recursive`？** 补一句即可：
+
+```sh
+git submodule update --init
+```
+
+判卷需要 DeepSeek API Key，在仓库根目录建一个 `.env`：
+
+```sh
+DEEPSEEK_API_KEY=sk-...
+DEEPSEEK_BASE_URL_OPENAI=https://api.deepseek.com
+```
+
+没有 Key 也能读教程、做选择题，只有开放题判卷不可用。
+
+### 环境要求
+
+| 组件 | 要求 | 说明 |
+|---|---|---|
+| **Python** | 3.9+ | 只用标准库，**无需 `pip install`**（开发与测试环境为 3.14） |
+| **现代浏览器** | 支持 ES2020 | 前端无构建、无 CDN、无框架 |
+| **DeepSeek API Key** | 可选 | 缺失时除开放题判卷外一切照常 |
+| **ripgrep** | 可选 | 加速全文搜索；未装则回退纯 Python 扫描（约 0.5 秒） |
+
+学习 DSH 本身（第 3 章起的动手实验）另需 Node 与 pnpm，要求见课程第 0 章。
+
+### 常用选项
+
+- 换端口：`ROADMAP_PORT=8080 python3 serve.py`
+- 换判题模型：在 `.env` 里加 `ROADMAP_MODEL=deepseek-v4-flash`
+- 装 ripgrep 加速搜索：`brew install ripgrep`（macOS）
+
+启动时会打印仓库路径、搜索引擎、API Key 是否已载入。判题不工作时先看这几行。
+
+---
+
+## 课程大纲
+
+13 章，从框架地基一路读到二次开发。深度基准是**关键路径逐行走读**：对主干链路做函数级走读并配调用栈图，非主干包只讲职责与接口。
+
+| 阶段 | 章 | 主题 | 状态 |
+|---|---|---|---|
+| 起步 | 0 | 先跑起来，再看地图 | ✅ |
+| 地基 | 1 | Cordis 插件模型：Context、Fiber 与可撤销副作用 | ✅ |
+| 地基 | 2 | 服务与事件：`ctx` 上的能力如何解析与分发 | 待写 |
+| 装配 | 3 | 启动链：从 `dsh web` 到一棵插件树 | 待写 |
+| 状态 | 4 | 会话日志：模型可见即已记录 | 待写 |
+| 心脏 | 5 | Agent Loop：一次轮次的完整生命周期 | 待写 |
+| 模型 | 6 | LLM 层：流式协议与适配器契约 | 待写 |
+| 上下文 | 7 | 提示词组装、skill 与压缩 | 待写 |
+| 工具 | 8 | 工具注册与受保护的执行流水线 | 待写 |
+| 工具 | 9 | 能力 seam 与安全边界 | 待写 |
+| 编排 | 10 | subagent、workflow 与后台任务 | 待写 |
+| 边界 | 11 | 概要：typert RPC 与 host/client 分层 | 待写 |
+| 产出 | 12 | 二次开发：把研究问题落到扩展点上 | 待写 |
+
+最终目标是第 12 章：在 DSH 上写出新的 plugin，包括新工具、自进化、记忆机制、多智能体排布。
+
+---
+
+## 目录结构
+
+```
+.
+├── serve.py              本地服务（零第三方依赖）
+├── check-content.js      内容校验：源码引用、渲染、双语对称
+├── static/
+│   ├── index.html        页面骨架
+│   ├── app.css           深浅双主题样式
+│   ├── app.js            主逻辑：教程↔IDE 联动、题目、进度、判题
+│   ├── markdown.js       Markdown 渲染器（含三种自定义语法）
+│   └── highlight.js      语法高亮（TS / YAML / JSON / Shell）
+├── content/
+│   ├── manifest.json     章节清单
+│   ├── chNN.zh.md        中文正文
+│   ├── chNN.en.md        英文正文
+│   └── chNN.quiz.json    题目（双语题面 + 仅服务端可见的评分要点）
+├── deepseek-harness/     被学习的源码（git submodule，锁定 commit）
+└── progress.json         学习进度（自动生成，已 gitignore）
+```
+
+### 为什么源码是 submodule
+
+`deepseek-harness/` 以 submodule 形式锁定在一个具体 commit 上。教程里有**上百条精确到行号的源码引用**，锁定 commit 才能保证它们永远对得上。上游一更新，未锁定的行号就会错位。
+
+要升级到上游新版本：
+
+```sh
+cd deepseek-harness && git pull origin master && cd ..
+node check-content.js        # 立刻检查哪些行号引用失效了
+git add deepseek-harness && git commit -m "bump harness"
+```
+
+---
+
+## 写作指南
+
+### 自定义 Markdown 语法
+
+标准 Markdown 之外有三种语法，都用于和右侧 IDE 联动。路径一律相对于 `deepseek-harness/` 仓库根，**不带该前缀**。
+
+**行内源码引用**，点击在右侧打开并高亮：
+
+```
+{{src:vendor/cordis/src/fiber.ts#L418-L561|ctx.effect()}}
+```
+
+**块级源码卡片**，更醒目的整块引用：
+
+````
+```srcref vendor/cordis/src/fiber.ts#L427-L442
+卡片上显示的说明文字
+```
+````
+
+**可交互插图**，内嵌 SVG。给节点加 `class="node-hit" data-path=… data-start=… data-end=…` 即可点击跳源码：
+
+````
+```figure 图注文字
+<svg viewBox="0 0 720 300">…</svg>
+```
+````
+
+**提示框**，四种类型 `note` / `warn` / `key` / `lab`：
+
+```
+:::key 标题
+内容
+:::
+```
+
+### 题目格式
+
+`chNN.quiz.json` 分选择题与开放题。题面字段（`prompt` / `options` / `explain`）写成 `{"zh": …, "en": …}`；`rubric` 与 `reference` 只用中文，**永远不会下发到前端**，仅在服务端拼进判题 prompt。
+
+开放题的 `context` 声明该题涉及的源码位置：
+
+```json
+"context": [
+  { "path": "vendor/cordis/src/fiber.ts", "lineStart": 427, "lineEnd": 442, "note": "倒序串行" }
+]
+```
+
+判题时服务端按这些声明**去仓库实时抠出代码**拼进 prompt，所以源码更新后题目上下文不会过期。
+
+### 校验
+
+改完内容跑一次：
+
+```sh
+node check-content.js
+```
+
+它会校验每条源码引用的文件与行号、Markdown 渲染是否干净、双语题面是否对称。断链会直接列出来。
+
+---
+
+## 进度与完成判定
+
+进度存在 `progress.json`（已 gitignore）。一章标记为「已完成」需要同时满足：
+
+1. 手动点了「标记本章已读」
+2. 选择题全对
+3. 开放题平均分 ≥ 70
+
+---
+
+## 许可
+
+课程内容归本仓库作者。被学习的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 由 DeepSeek AI 以 MIT 许可发布，以 submodule 引用，不在本仓库内分发。
