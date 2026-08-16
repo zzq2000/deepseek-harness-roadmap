@@ -85,7 +85,7 @@
     {
       "id": "ch06",
       "no": 6,
-      "ready": false,
+      "ready": true,
       "stage": {
         "zh": "模型",
         "en": "Model"

@@ -1,0 +1,147 @@
+{
+  "choice": [
+    {
+      "id": "c1",
+      "prompt": {
+        "zh": "DeepSeek 适配器的 `translate()` 把 `block-end`、`usage`、`finish` 三种 chunk 全都攒到收到 `[DONE]` 那一刻才发出。主要原因是什么？",
+        "en": "The DeepSeek adapter's `translate()` holds back `block-end`, `usage`, and `finish` until the `[DONE]` sentinel arrives. What is the main reason?"
+      },
+      "options": {
+        "zh": [
+          "一次性发出比逐条发出省内存",
+          "usage 有两种到达形状（挂在 finish 帧上，或作为尾随的独立帧），推迟才能保证 `finish` 之后不再有任何 chunk",
+          "SSE 协议规定 block-end 必须在流末尾",
+          "为了让 BlockAssembler 能按 index 排序"
+        ],
+        "en": [
+          "Emitting them at once uses less memory than one at a time",
+          "Usage arrives in two shapes (attached to the finish frame, or as a separate trailing frame), and deferring is what guarantees no chunk follows `finish`",
+          "The SSE spec requires block-end at the end of the stream",
+          "So that BlockAssembler can sort by index"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "模块 JSDoc 写的是 `covering both finish-attached and trailing usage-only shapes while ensuring no chunk follows finish`。收到 `finish_reason` 就立刻发 `finish` 的话，尾随的 usage 帧会排在 finish 之后，违反 `StreamChunk` 的适配器契约。代价只是块关闭得晚一点，而 delta 早就流出去了。",
+        "en": "The module JSDoc says `covering both finish-attached and trailing usage-only shapes while ensuring no chunk follows finish`. Emitting `finish` as soon as `finish_reason` arrives would place a trailing usage frame after it, violating the `StreamChunk` adapter contract. The only cost is closing blocks later, and the deltas already went out."
+      }
+    },
+    {
+      "id": "c2",
+      "prompt": {
+        "zh": "一个适配器的 `stream()` 抛出了 `LlmError('SERVER')`。agent loop 里的 `for await` 会观察到什么？",
+        "en": "An adapter's `stream()` throws `LlmError('SERVER')`. What does the agent loop's `for await` observe?"
+      },
+      "options": {
+        "zh": [
+          "异常直接冒泡，`for await` 抛出，没有 chunk",
+          "一条 `finish` chunk，`reason.kind` 是 `error`（signal 已取消时是 `aborted`），并且这条 chunk 会被正常 append 成 `assistant/chunk`",
+          "一条空的 `block-end`，随后流正常结束",
+          "什么都观察不到，重试插件会在更下层静默重发"
+        ],
+        "en": [
+          "The exception propagates; `for await` throws and no chunk appears",
+          "One `finish` chunk with `reason.kind` of `error` (or `aborted` when the signal is already cancelled), and that chunk is appended as a normal `assistant/chunk`",
+          "An empty `block-end`, after which the stream ends normally",
+          "Nothing; the retry plugin silently resends at a lower layer"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "`adapterStream()` 用两段 try 把适配器选择、构造和迭代的失败都转成 `adapterFailureChunk()` 造的终止 chunk。失败的那次尝试照样落日志，本章实验第 3 步的 seq 7 就是它。中间件和消费者的失败不走这条路，仍然抛。",
+        "en": "`adapterStream()` uses two try blocks to convert adapter selection, construction, and iteration failures into the terminal chunk built by `adapterFailureChunk()`. The failed attempt is still logged; seq 7 in lab step 3 is exactly that chunk. Middleware and consumer failures do not take this path and stay thrown."
+      }
+    },
+    {
+      "id": "c3",
+      "prompt": {
+        "zh": "`BlockAssembler.blocks()` 在 `finish.kind === 'max-tokens'` 时过滤掉所有 `tool-call` 块。为什么这是必要的？",
+        "en": "`BlockAssembler.blocks()` filters out every `tool-call` block when `finish.kind === 'max-tokens'`. Why is that necessary?"
+      },
+      "options": {
+        "zh": [
+          "被截断的工具调用一定解析失败，留着会让 JSON.parse 抛异常",
+          "被截断的 `arguments` 可能仍是合法 JSON，只是参数变了，执行它是危险的",
+          "provider 在 max-tokens 时不会返回 call id，配对不上",
+          "为了让 token 计数对得上"
+        ],
+        "en": [
+          "A truncated tool call always fails to parse, and keeping it would make JSON.parse throw",
+          "A truncated `arguments` may still be valid JSON with different arguments, and executing it is dangerous",
+          "Providers return no call id on max-tokens, so results cannot be correlated",
+          "To make the token accounting add up"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "解析失败反而是好情况。危险的是恰好能解析：`{\"path\":\"/tmp/a\",\"recursive\":true` 截成 `{\"path\":\"/tmp/a\"` 之后仍是合法 JSON。JSDoc 写的是 `drops tool calls that cannot be executed safely`。配套的是 `step()` 收到 max-tokens 直接返回，不进工具调度。",
+        "en": "Failing to parse is the good case. The dangerous case is parsing successfully: `{\"path\":\"/tmp/a\",\"recursive\":true` truncated to `{\"path\":\"/tmp/a\"` is still valid JSON. The JSDoc says `drops tool calls that cannot be executed safely`. Its counterpart is `step()` returning immediately on max-tokens without entering tool scheduling."
+      }
+    }
+  ],
+  "open": [
+    {
+      "id": "o1",
+      "prompt": {
+        "zh": "`adapterStream()` 的读取循环里，`yield item.value` 写在 try 块的**外面**，而 `await iterator.next()` 写在里面。解释这一行位置的意义：它区分的是哪两类失败？如果把 yield 挪进 try 会发生什么？",
+        "en": "In `adapterStream()`'s read loop, `yield item.value` sits **outside** the try block while `await iterator.next()` sits inside it. Explain what that placement accomplishes: which two classes of failure does it separate, and what would happen if the yield moved inside the try?"
+      },
+      "context": [
+        { "path": "packages/llm/llm/src/index.ts", "lineStart": 838, "lineEnd": 900, "note": "adapterStream 全文，两段 try" },
+        { "path": "packages/llm/llm/src/index.ts", "lineStart": 930, "lineEnd": 939, "note": "adapterFailureChunk" }
+      ],
+      "rubric": [
+        "必须指出 generator 在 yield 处挂起，消费者/中间件抛出的异常会被 JS 引擎以 generator.throw() 的形式回灌，落点正是那一行 yield",
+        "必须指出被区分的两类失败：适配器侧（选择、构造迭代器、iterator.next() 抛出）转成终止 finish chunk；中间件与下游消费者侧的失败保持抛出",
+        "必须指出如果 yield 在 try 里面，消费者自己的 bug 会被误判成适配器失败，被 adapterFailureChunk 包成 error finish chunk 吞掉，责任归属就错了",
+        "必须引用或复述那条注释：consumer/middleware failures resumed into this generator must remain thrown",
+        "（加分）注意到 adapterFailureChunk 还要分 aborted 和 error 两种：signal.aborted 或 code === 'ABORTED' 判为取消，因为取消不该触发重试",
+        "（加分）注意到 finally 里的 completed 标记和 iterator.return()：消费者提前 break 时要让适配器执行自己的清理（DeepSeek 适配器里的 consumer.abort），HTTP 连接才真的断"
+      ],
+      "reference": "generator 的 yield 是一个挂起点。消费者在 for await 的循环体里抛异常时，JS 引擎不是简单地结束迭代，而是调用 generator 的 throw()，把这个异常重新注入到 generator 内部当前挂起的位置，也就是 `yield item.value` 那一行。所以这一行在不在 try 里，决定了消费者的异常会不会被这个 catch 接住。\n\n这条边界在 adapterStream 的 JSDoc 里写死了：适配器选择、派发、迭代器构造、迭代失败，四者都转成一条终止的 finish chunk；中间件和下游消费者的失败保持为抛出的插件/消费者错误。前者是「对面出问题了」，应该变成一个模型调用的失败结果，交给 agent/request-error 和重试策略处理；后者是「我们自己这边的代码有 bug」，必须原样冒泡，让它被看见。\n\n如果把 yield 挪进 try，第二类就会被第一类吞掉：某个 llm/stream 监听器或者 agent loop 自身抛出的异常，会被 adapterFailureChunk 包成一条 `{kind:'error'}` 的 finish chunk。后果是这个 bug 表现为「模型调用失败了」，而且是可重试的失败，于是同一个 bug 会被静默重试若干次，最后以一条误导性的 provider 失败信息结束。源码里那句注释正是为这一行存在的：End the adapter-owned try before yielding: consumer/middleware failures resumed into this generator must remain thrown。\n\n配套的两处：adapterFailureChunk 还要区分 aborted 与 error，判据是 options.signal?.aborted 或失败码本身为 ABORTED，因为取消不该被记成失败也不该触发重试；finally 里的 completed 标记覆盖「消费者提前 break」的情况，此时调用 iterator.return() 让适配器的 generator 执行它自己的 finally，DeepSeek 适配器在那里 abort 掉 consumer controller，HTTP 连接才会真的关掉。"
+    },
+    {
+      "id": "o2",
+      "prompt": {
+        "zh": "agent loop 用的是 `llm.prepareCall(config)` 而不是直接 `llm.stream(options)`。说明 `prepareCall` 多做了哪些事、它堵的是什么缝，并解释返回值里的 `adapterDefaults` 字段为什么必要（结合第 5 章 `buildRequest` 里恢复 reasoningEffort 的那段判定）。",
+        "en": "The agent loop calls `llm.prepareCall(config)` rather than `llm.stream(options)` directly. Explain what `prepareCall` does in addition, which gap it closes, and why the returned `adapterDefaults` field is necessary (tie it to chapter 5's reasoningEffort restoration condition in `buildRequest`)."
+      },
+      "context": [
+        { "path": "packages/llm/llm/src/index.ts", "lineStart": 771, "lineEnd": 814, "note": "prepareCall" },
+        { "path": "packages/llm/llm/src/index.ts", "lineStart": 734, "lineEnd": 769, "note": "resolveCallFor：materialize 默认值" },
+        { "path": "packages/core/agent-loop/src/agent.ts", "lineStart": 407, "lineEnd": 495, "note": "buildRequest 里的恢复判定" }
+      ],
+      "rubric": [
+        "必须指出 prepareCall 在解析和派发之间隔着一段 await（resolveModel 要问适配器要 contextWindow / defaultMaxTokens / 支持的 effort），期间 HMR 可能换掉这个 provider 的适配器",
+        "必须指出它把 registration 闭包捕获住，派发时不再查注册表，因此不会用 A 适配器算出的能力去调 B 适配器",
+        "必须提到返回的 handle 上的约束：一次性（dispatched 后再调抛 INVALID_PREPARED_CALL）、派发时用 callConfigEquals 校验配置没变、config 是 deepFreeze(structuredClone(...)) 出来的",
+        "必须解释 adapterDefaults 记录的是「哪些字段是适配器补的默认值，而不是调用方提出的」，因为 resolveCallFor 把默认值 materialize 进 config 之后两者就分不开了",
+        "必须把它接回 buildRequest：恢复会话时，用户显式选的 reasoningEffort 该恢复，适配器当时补的默认值不该恢复（默认值可能已经变了），判定条件里的 adapterDefaults?.reasoningEffort !== true 就是这个区分",
+        "（加分）注意到 resolveCallFor 对不支持的 effort 是直接抛 UNSUPPORTED_REASONING_EFFORT，不做夹取也不做别名，理由是悄悄降级会让用户以为自己在用 max"
+      ],
+      "reference": "prepareCall 把「解析这次调用」和「派发这次调用」拆成了两步，中间隔着一段真正的异步：resolveModelInfoFor 会调适配器的 resolveModel()，问出这个 exact model 的 contextWindow、defaultMaxTokens、支持哪些 reasoning effort 以及默认 effort，这一步可能有网络或磁盘 I/O。Cordis 的热重载在这段时间里完全可以卸载并重新装载这个 provider 的适配器插件。如果派发时再 this.adapters.get(provider) 查一次，拿到的就是新适配器，而手上的能力结果是旧适配器算的，两者可能对不上（比如新适配器不支持刚才解析出来的 effort）。prepareCall 的做法是在解析开始时就取到 registration 并闭包捕获，stream() 里直接用 { registration, config }，注册表在这中间怎么变都影响不到这一次调用。JSDoc 写的 so HMR cannot combine one adapter's capability result with another adapter 就是这个意思。\n\n返回的 handle 上还有三道锁：dispatched 标志让它只能派发一次，再调抛 INVALID_PREPARED_CALL；派发时用 callConfigEquals(options, resolvedConfig) 校验请求携带的 call-config 字段和准备时一致；config 本身是 deepFreeze(structuredClone(resolved.config)) 出来的，调用方拿到的是一份冻结的副本。\n\nadapterDefaults 解决的是另一个问题。resolveCallFor 会把适配器配的默认值直接填进 config：调用方没给 maxTokens 就填 info.defaultMaxTokens，没给 reasoningEffort 就填 reasoning.defaultEffort。填完之后，config 里的 reasoningEffort='high' 到底是用户选的还是适配器补的，从 config 本身看不出来。adapterDefaults 就是这个来源标记，只记 true。\n\n它在第 5 章 buildRequest 里被用来做恢复判定。恢复一个已有会话时，日志里的 request/header 记着上次的 config。如果那个 reasoningEffort 是用户显式选的，应该恢复；如果是适配器当时补的默认值，就不该恢复，而要重新走一次 resolveCallFor 问适配器现在的默认值是什么，因为适配器的配置可能已经改了。所以条件里除了 provider/model 要匹配，还有 persistedHeader?.adapterDefaults?.reasoningEffort !== true 这一项。没有这个标记，这个区分做不出来，只能二选一：要么把过时的默认值当用户选择固化下来，要么把用户的选择当默认值丢掉。\n\n同一层还有一个相关决策：resolveCallFor 对不支持的 effort 是直接抛 UNSUPPORTED_REASONING_EFFORT，注释明说 no clamping or aliasing is performed。悄悄把 max 降级成 high，用户会一直以为自己在用 max。"
+    },
+    {
+      "id": "o3",
+      "prompt": {
+        "zh": "`dsh-llm-retry` 挂的是 `agent/request-error`，不是 `llm/stream`。解释这个选择的理由；再说明它为什么用 `session.events.findLast` 而不是内存计数器来数「这是第几次重试」，以及匹配条件里的 `policyKey` 起什么作用。",
+        "en": "`dsh-llm-retry` hooks `agent/request-error`, not `llm/stream`. Explain that choice; then explain why it counts retries with `session.events.findLast` instead of an in-memory counter, and what `policyKey` does in the match condition."
+      },
+      "context": [
+        { "path": "packages/llm/llm-retry/src/index.ts", "lineStart": 156, "lineEnd": 208, "note": "recover：查找先前重试、算延迟" },
+        { "path": "packages/llm/llm-retry/src/index.ts", "lineStart": 111, "lineEnd": 154, "note": "backoff：两条事件夹着等待" },
+        { "path": "packages/llm/llm-retry/src/index.ts", "lineStart": 65, "lineEnd": 76, "note": "retryPolicyKey" },
+        { "path": "packages/core/agent-loop/src/agent.ts", "lineStart": 332, "lineEnd": 401, "note": "step 内层 while 与 agent/request-error" }
+      ],
+      "rubric": [
+        "必须指出重试需要两样 LLM 层拿不到的东西：会话（往里 append llm/retry 事件）和轮次坐标 turn / step",
+        "必须指出 step() 里那个 while (true) 本身已经是重试循环，agent/request-error 只需要回答「要不要再来一次」，在 llm/stream 层重做一个循环是多余的",
+        "必须指出计数从日志里 findLast 出来意味着插件本身无状态，状态住在会话日志里，因此重启后恢复会话重试计数不会归零",
+        "必须说明 policyKey 是把整个已解析策略序列化成的字符串，用它参与匹配的效果是策略一变（例如 maxRetries 从 2 改成 5 后热重载）计数就重新开始",
+        "（加分）注意到 llm/retry 写在 cancellableDelay 之前、llm/retry-started 写在之后，即重试决定在开始等待之前就已经持久化；也让界面可以在两条之间显示倒计时",
+        "（加分）注意到 providerRetryAfterMs 超过 policy.maxDelayMs 时 normal 模式 return next() 放弃、always 模式改用本地退避，体现两种模式定位不同"
+      ],
+      "reference": "选 agent/request-error 而不是 llm/stream，理由有两条。第一，重试要往会话日志里写 llm/retry 和 llm/retry-started 两条事件，还要把 turn 和 step 记进去；这两样东西 LLM 层都没有，LlmRuntime 只认识 GenerateOptions，不认识 agent 和 session。agent/request-error 的 payload 里 agent、turn、step、provider、failure、retryPolicy、signal 一应俱全。第二，step() 里那个 while (true) 本来就是为重试存在的：finish 是 error 或 aborted 时走 agent/request-error waterfall，拿到 { kind: 'retry' } 就 continue 转下一圈，否则抛。循环已经有了，插件只需要提供一个判断，在 llm/stream 层再包一个重试循环是重复实现，而且那一层看不见 step 边界，重试次数没法按 step 归属。\n\n计数用 session.events.findLast 而不是内存计数器，是第 4 章那条原则的直接应用：状态住在日志里，插件无状态。findLast 的四个匹配条件是 type === 'llm/retry'、turn、step、provider、policyKey，取出最近一条的 retry 值加一。这样做的直接好处是重启后恢复会话，重试计数不会归零；如果插件被卸载重装（热重载），计数也不会丢。反过来，如果用内存里的 Map<turn-step, count>，这些场景全都会静默失效，而失效的方向是「重试次数变多」，可能把一个已经确定失败的请求反复发出去。\n\npolicyKey 是 retryPolicyKey() 把整个已解析策略序列化出来的字符串：normal 模式包含 mode、maxRetries、排序后的 retryableCodes、三个退避参数，always 模式包含 mode 和三个退避参数。把它加进匹配条件的效果是：策略一改，历史计数就不再匹配，计数从零重新开始。用户把 maxRetries 从 2 改成 5 并热重载，不会因为日志里已经有两条 llm/retry 而立刻放弃。同一个 turn/step 上换了 provider 也同理，因为 provider 也在匹配条件里。\n\n还有两处值得一起看。backoff() 里 llm/retry 写在 cancellableDelay 之前、llm/retry-started 写在之后，模块 JSDoc 概括为 Each scheduled retry is durable before its cancellable wait：重试的决定在开始等待之前就落盘了，等待期间进程崩掉也能从日志看出曾计划重试；分成两条还让界面能在中间显示倒计时。以及 providerRetryAfterMs 超过 policy.maxDelayMs 时的分岔：normal 模式 return next() 把决定权交给链上下家（等于放弃），always 模式改用 localDelay 继续，体现的是 normal 负责有限次的瞬时故障恢复、always 负责一直重试到成功或取消。"
+    }
+  ]
+}
