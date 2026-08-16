@@ -109,7 +109,7 @@ DEEPSEEK_BASE_URL_OPENAI=https://api.deepseek.com
 │   ├── app.js            主逻辑：教程↔IDE 联动、题目、进度、判题
 │   ├── markdown.js       Markdown 渲染器（含三种自定义语法）
 │   └── highlight.js      语法高亮（TS / YAML / JSON / Shell）
-├── content/
+├── content/              课程内容（写作约定见 content/README.md）
 │   ├── manifest.json     章节清单
 │   ├── chNN.zh.md        中文正文
 │   ├── chNN.en.md        英文正文
@@ -129,68 +129,6 @@ cd deepseek-harness && git pull origin master && cd ..
 node check-content.js        # 立刻检查哪些行号引用失效了
 git add deepseek-harness && git commit -m "bump harness"
 ```
-
----
-
-## 写作指南
-
-### 自定义 Markdown 语法
-
-标准 Markdown 之外有三种语法，都用于和右侧 IDE 联动。路径一律相对于 `deepseek-harness/` 仓库根，**不带该前缀**。
-
-**行内源码引用**，点击在右侧打开并高亮：
-
-```
-{{src:vendor/cordis/src/fiber.ts#L418-L561|ctx.effect()}}
-```
-
-**块级源码卡片**，更醒目的整块引用：
-
-````
-```srcref vendor/cordis/src/fiber.ts#L427-L442
-卡片上显示的说明文字
-```
-````
-
-**可交互插图**，内嵌 SVG。给节点加 `class="node-hit" data-path=… data-start=… data-end=…` 即可点击跳源码：
-
-````
-```figure 图注文字
-<svg viewBox="0 0 720 300">…</svg>
-```
-````
-
-**提示框**，四种类型 `note` / `warn` / `key` / `lab`：
-
-```
-:::key 标题
-内容
-:::
-```
-
-### 题目格式
-
-`chNN.quiz.json` 分选择题与开放题。题面字段（`prompt` / `options` / `explain`）写成 `{"zh": …, "en": …}`；`rubric` 与 `reference` 只用中文，**永远不会下发到前端**，仅在服务端拼进判题 prompt。
-
-开放题的 `context` 声明该题涉及的源码位置：
-
-```json
-"context": [
-  { "path": "vendor/cordis/src/fiber.ts", "lineStart": 427, "lineEnd": 442, "note": "倒序串行" }
-]
-```
-
-判题时服务端按这些声明**去仓库实时抠出代码**拼进 prompt，所以源码更新后题目上下文不会过期。
-
-### 校验
-
-改完内容跑一次：
-
-```sh
-node check-content.js
-```
-
-它会校验每条源码引用的文件与行号、Markdown 渲染是否干净、双语题面是否对称。断链会直接列出来。
 
 ---
 
