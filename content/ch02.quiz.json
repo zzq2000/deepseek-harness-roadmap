@@ -1,0 +1,146 @@
+{
+  "choice": [
+    {
+      "id": "c1",
+      "prompt": {
+        "zh": "一个插件没有声明 `inject`，直接读 `ctx.someService`。查找循环会怎么走？",
+        "en": "A plugin reads `ctx.someService` without declaring `inject`. What does the lookup loop do?"
+      },
+      "options": {
+        "zh": [
+          "直接从全局注册表取到实现，`inject` 只影响加载时机",
+          "沿 fiber 链一路向上走到根 fiber，都没命中，抛 `without inject`",
+          "立刻抛 `in inactive context`，因为没声明依赖",
+          "返回 `undefined`，由调用方自己判空"
+        ],
+        "en": [
+          "It resolves from a global registry; `inject` only affects load timing",
+          "It walks up the fiber chain to the root, finds nothing, and throws `without inject`",
+          "It immediately throws `in inactive context` because no dependency was declared",
+          "It returns `undefined` and leaves the null check to the caller"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "`fiber.store` 只包含 `inject` 声明过的服务，所以没声明就一定不命中。循环持续向上直到 {{src:vendor/cordis/src/reflect.ts#L163-L163|`if (!fiber.runtime) throw error`}} 命中根 fiber。`in inactive context` 是另一条分支：**声明了** inject 但 fiber 尚未激活时才走它。",
+        "en": "`fiber.store` only holds services declared via `inject`, so an undeclared name never hits. The loop keeps walking until {{src:vendor/cordis/src/reflect.ts#L163-L163|`if (!fiber.runtime) throw error`}} at the root fiber. `in inactive context` is a different branch, reached only when inject **was** declared but the fiber is not yet active."
+      }
+    },
+    {
+      "id": "c2",
+      "prompt": {
+        "zh": "某个 waterfall 事件有三个监听器 A、B、C（按注册顺序）。B 处理完后**没有**调用 `next()`，直接返回了一个值。结果是？",
+        "en": "A waterfall event has three listeners A, B, C in registration order. B returns a value **without** calling `next()`. What happens?"
+      },
+      "options": {
+        "zh": [
+          "C 和内置行为都不执行，B 的返回值经 A 包装后成为最终结果",
+          "C 不执行，但内置行为仍会执行，因为它是兜底",
+          "C 仍会执行，只有内置行为被跳过",
+          "抛出异常，因为 waterfall 监听器必须调用 next()"
+        ],
+        "en": [
+          "Neither C nor the built-in behavior runs; B's value, wrapped by A, becomes the result",
+          "C is skipped but the built-in behavior still runs as a fallback",
+          "C still runs; only the built-in behavior is skipped",
+          "It throws, because waterfall listeners must call next()"
+        ]
+      },
+      "answer": 0,
+      "explain": {
+        "zh": "看 {{src:vendor/cordis/src/events.ts#L234-L243|waterfall 实现}}：链条完全靠 `next()` 驱动，`cbs.shift()` 只在 `next()` 里发生。B 不调用就没人再推进，C 和 `inner`（内置行为）都不会被取出。**内置行为不是兜底，它只是链条最内层。** 至于第四项：规范要求监听器调 `next()`，但那是约定，框架不会强制报错。",
+        "en": "See the {{src:vendor/cordis/src/events.ts#L234-L243|waterfall implementation}}: the chain is driven entirely by `next()`, and `cbs.shift()` only happens inside it. If B never calls it, nothing advances, so neither C nor `inner` is pulled. **The built-in behavior is not a fallback, it is merely the innermost layer.** As for the fourth option: the guideline requires calling `next()`, but that is a convention, not an enforced runtime error."
+      }
+    },
+    {
+      "id": "c3",
+      "prompt": {
+        "zh": "`provide()` 的 disposer 里，为什么先 `delete this.store[key]` 和 `notify`，最后才 `delete this.ctx.fiber.store![name]`？",
+        "en": "In `provide()`'s disposer, why does `delete this.store[key]` plus `notify` come first, and `delete this.ctx.fiber.store![name]` last?"
+      },
+      "options": {
+        "zh": [
+          "为了让 `store` 和 `fiber.store` 的删除顺序与注册顺序相反",
+          "因为依赖者在自己卸载过程中可能还要读这个服务，过早删掉会让它们的清理代码解析失败",
+          "因为 `fiber.store` 是只读的，必须等所有依赖者卸载后才可写",
+          "顺序无所谓，两行可以互换"
+        ],
+        "en": [
+          "So that the two deletions mirror the registration order",
+          "Because dependents may still read the service while running their own cleanup, and deleting early would make their cleanup fail to resolve it",
+          "Because `fiber.store` is read-only until all dependents have unloaded",
+          "The order does not matter; the two lines are interchangeable"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "源码注释直接写了：`ensure self access before dependencies cleanup`。`delete this.store[key]` 让外界立刻看不到它，`notify` 唤醒依赖者去卸载，`await` 等它们结束。这期间依赖者仍要通过**自己的** `fiber.store` 读到这个服务来完成清理，所以最后才删。这与第 1 章「一个 effect 内部倒序串行」是同一类顺序依赖。",
+        "en": "The source comment says it outright: `ensure self access before dependencies cleanup`. `delete this.store[key]` makes it invisible to newcomers, `notify` wakes dependents to unload, and `await` waits for them. Throughout that window dependents still resolve this service through **their own** `fiber.store` to finish cleanup, so it is deleted last. This is the same class of ordering dependency as chapter 1's reverse-serial cleanup inside one effect."
+      }
+    }
+  ],
+  "open": [
+    {
+      "id": "o1",
+      "prompt": {
+        "zh": "查找循环里有两条不同的失败分支：\n\n```ts\nif (prop in fiber.inject) {\n  error.message = `cannot get required service \"${prop}\" in inactive context`\n  throw error\n}\nif (!fiber.runtime) throw error   // 保持原始信息 without inject\n```\n\n**为什么「声明了 inject 但快照里没有」时必须立刻抛错，而不能继续向上找？** 如果改成继续向上找，会引入什么问题？",
+        "en": "The lookup loop has two distinct failure branches:\n\n```ts\nif (prop in fiber.inject) {\n  error.message = `cannot get required service \"${prop}\" in inactive context`\n  throw error\n}\nif (!fiber.runtime) throw error   // keeps the original without-inject message\n```\n\n**Why must the \"declared inject but absent from the snapshot\" case throw immediately instead of continuing up the chain?** What would break if it kept walking?"
+      },
+      "context": [
+        { "path": "vendor/cordis/src/reflect.ts", "lineStart": 153, "lineEnd": 167, "note": "查找循环的两条失败分支" },
+        { "path": "vendor/cordis/src/fiber.ts", "lineStart": 646, "lineEnd": 656, "note": "store 在 _reload 时才从 _store 快照" },
+        { "path": "vendor/cordis/src/fiber.ts", "lineStart": 611, "lineEnd": 623, "note": "_refresh 决定依赖是否齐全" }
+      ],
+      "rubric": [
+        "指出这种情况意味着该插件声明了要用自己作用域内的那份实现，但 fiber 尚未激活（store 快照还没填好）",
+        "指出继续向上找会拿到**父级作用域**的另一份实现，与插件声明的依赖不是同一个",
+        "点出这会破坏隔离语义：isolate realm 内的插件本该只看到 realm 内的实现，向上找等于穿透了边界",
+        "（加分）指出这还会破坏 epoch 机制的正确性：插件用了一个没有被记进 epoch 指纹的实现，那份实现被替换时它不会重载，形成悬垂引用",
+        "（加分）注意到两条分支给出不同错误信息本身就是诊断价值：一个是「你忘了声明」，一个是「你声明了但现在还不能用」"
+      ],
+      "reference": "因为「`prop in fiber.inject` 为真但 `fiber.store[prop]` 为空」这个状态有确切含义：这个插件明确声明了它要用**自己这一层解析到的**那份实现，只是 fiber 还没激活，快照尚未填好（`store` 是 `_reload` 时才从 `_store` 拷过来的）。此时继续向上找，拿到的是父级作用域里的另一份实现，这与插件声明的依赖并非同一个对象。后果有两层：第一，隔离语义被穿透，处在 isolate realm 内的插件本该只看到 realm 内的实现，向上找等于绕过了边界；第二，epoch 机制失效，插件实际使用的实现没有被计进依赖指纹，当那份实现被替换或卸载时它不会重载，于是继续持有一个悬垂引用。所以正确做法是立刻失败，并且用 `in inactive context` 这个不同的措辞把「你忘了声明依赖」和「你声明了但现在还拿不到」区分开，前者是代码错误，后者通常只是时序问题。"
+    },
+    {
+      "id": "o2",
+      "prompt": {
+        "zh": "DSH 在派发工具前这样调用：\n\n```ts\nconst gate = await this.ctx.waterfall(\n  carrier, 'tools/pre-execute', exec,\n  () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),\n)\n```\n\n**最后那个箭头函数在 waterfall 机制里扮演什么角色？** 结合它解释：为什么说 DSH 的「拒绝执行工具」这个能力完全由插件提供，而不是内建的？如果把它改成返回 `{ kind: 'deny' }`，产品行为会变成什么样？",
+        "en": "DSH dispatches tools through this call:\n\n```ts\nconst gate = await this.ctx.waterfall(\n  carrier, 'tools/pre-execute', exec,\n  () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),\n)\n```\n\n**What role does that trailing arrow function play in the waterfall mechanism?** Using it, explain why the ability to *refuse* a tool call is entirely plugin-provided rather than built in. And what would the product do if it were changed to return `{ kind: 'deny' }`?"
+      },
+      "context": [
+        { "path": "vendor/cordis/src/events.ts", "lineStart": 234, "lineEnd": 243, "note": "waterfall 实现：inner 是 args.pop()" },
+        { "path": "packages/core/tools/src/index.ts", "lineStart": 1474, "lineEnd": 1478, "note": "真实调用点" },
+        { "path": "packages/core/tools/src/index.ts", "lineStart": 143, "lineEnd": 152, "note": "tools/pre-execute 事件声明" }
+      ],
+      "rubric": [
+        "指出它是 waterfall 的 inner，由 `args.pop()` 取出，是链条的最内层、也是没有任何监听器时的默认行为",
+        "解释「拒绝能力由插件提供」：核心只定义了决策的形状（PreToolDecision）与默认值 allow，真正返回 deny/ask 的逻辑在监听该事件的插件里",
+        "指出监听器通过不调用 next() 来短路，从而让自己的决定覆盖默认的 allow",
+        "回答改成 deny 的后果：没装任何审批插件时所有工具调用都被拒绝，agent 完全无法执行工具，即默认策略从「放行」翻转为「禁止」",
+        "（加分）指出这是把安全默认值放在调用点而非分散在插件里的设计，一处即可读出整个产品的默认策略"
+      ],
+      "reference": "它是 waterfall 的 `inner`：`waterfall()` 里 `const inner = args.pop()` 摘走的就是它，它是洋葱的最内层，也是链上没有任何监听器时 `next()` 最终落到的地方。它返回 `{ kind: 'allow' }`，所以 DSH 的默认策略是放行。\n\n「拒绝能力由插件提供」的含义是：核心只定义了两件事，决策的类型（`PreToolDecision`，即 allow/deny/ask 这个形状）和默认值（allow）。真正产生 deny 或 ask 的逻辑不在 tools 包里，而在监听 `tools/pre-execute` 的插件中，比如审批插件。这些监听器通过**不调用 `next()`** 来短路整条链，让自己的决定取代默认值。卸载该插件，监听器随 effect 一起消失，产品自动退回默认放行。\n\n如果把 `inner` 改成返回 `{ kind: 'deny' }`，默认策略就整体翻转：在没有任何审批插件的部署里，所有工具调用都会被拒绝，agent 只能对话不能干活；而装了审批插件的部署里，只有被插件显式 allow 的调用才能执行。这也说明把默认值写在调用点是有意为之，读一行就能知道整个产品的默认安全策略是什么，而不用去翻所有插件。"
+    },
+    {
+      "id": "o3",
+      "prompt": {
+        "zh": "第 1 章讲了 epoch：依赖指纹变了就重载，但没说谁去改指纹。这一章的 `notify()` 补上了这一环。\n\n请把 `provide` 一个新服务到依赖它的插件真正跑起来这条链路**完整串一遍**（点出沿途的关键函数），并回答：为什么说这是 Cordis 里唯一的自动调度，它替代了传统框架里的什么东西？",
+        "en": "Chapter 1 covered epochs (a changed fingerprint triggers a reload) but not who changes the fingerprint. This chapter's `notify()` closes that gap.\n\nTrace the **complete chain** from `provide`-ing a new service to a dependent plugin actually running, naming the key functions along the way. Then answer: why is this the only automatic scheduling in Cordis, and what does it replace from conventional frameworks?"
+      },
+      "context": [
+        { "path": "vendor/cordis/src/reflect.ts", "lineStart": 277, "lineEnd": 305, "note": "provide 内部调用 notify" },
+        { "path": "vendor/cordis/src/reflect.ts", "lineStart": 314, "lineEnd": 336, "note": "notify 遍历所有 fiber" },
+        { "path": "vendor/cordis/src/fiber.ts", "lineStart": 597, "lineEnd": 639, "note": "_checkImpl / _refresh / _setEpoch" },
+        { "path": "vendor/cordis/src/fiber.ts", "lineStart": 646, "lineEnd": 673, "note": "_reload" }
+      ],
+      "rubric": [
+        "完整串出链路：provide → notify → 遍历 registry 的每个 fiber → 筛出 inject 了该名字且隔离标签匹配的 → _checkImpl 更新 _store → _refresh 重算 epoch → _setEpoch 发现指纹变化 → _reload 执行插件",
+        "指出筛选条件有两个：`name in fiber.inject` 和隔离标签匹配（filter），缺一不可",
+        "解释为什么是「唯一的自动调度」：Cordis 没有依赖注入容器，也不做拓扑排序，加载顺序完全由这条链在运行时决定",
+        "指出它替代的是传统框架的依赖图分析与启动顺序编排（DI 容器 / 拓扑排序 / 生命周期钩子编排）",
+        "（加分）指出这解释了第 1 章说的「配置文件里的顺序不决定加载顺序」",
+        "（加分）指出 notify 是遍历全部 fiber 而非维护反向索引，是用简单换正确性的取舍"
+      ],
+      "reference": "链路是：某插件调用 `provide(name, impl)`，它在 effect 内把实现写进 `store[key]` 并调用 `notify([name])`。`notify` 遍历 `registry` 里每一个 runtime 的每一个 fiber，对同时满足「`name in fiber.inject`」和「隔离标签匹配 filter」两个条件的 fiber，调 `fiber._checkImpl(name)` 把新实现填进它的 `_store`，再调 `fiber._refresh()`。`_refresh` 把每个依赖的提供方 fiber uid 拼成新的 epoch 指纹交给 `_setEpoch`；`_setEpoch` 发现指纹从 INACTIVE 变成了有效值，于是启动 `_reload()`，插件回调这才真正执行，此时 `ctx.someService` 已经能解析到。\n\n说它是唯一的自动调度，是因为 Cordis 里没有任何别的机制会主动决定插件何时加载：没有依赖注入容器去解析构造参数，没有对依赖图做拓扑排序，也没有启动阶段编排。所有插件都是并发挂载的，谁先谁后完全由「谁 provide 了什么」触发「谁 inject 了它」重算指纹来决定。这正是第 1 章说「配置文件里的位置不保证加载先后」的原因。\n\n它替代的是传统框架里的 DI 容器和启动顺序编排。代价是 `notify` 每次都要遍历全部 fiber，没有维护「服务名到依赖者」的反向索引，这是拿一点性能换实现简单与正确性的取舍，在插件数量级（几百）下完全可接受。"
+    }
+  ]
+}

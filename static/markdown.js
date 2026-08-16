@@ -65,7 +65,14 @@
     out = out.replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>');
     out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
 
-    return out.replace(/\uE000(\d+)\uE000/g, (_, i) => stash[+i]);
+    // \u5360\u4F4D\u7B26\u53EF\u4EE5\u5D4C\u5957\uFF1A{{src:path|`code`}} \u7684 label \u5148\u88AB\u884C\u5185\u4EE3\u7801\u89C4\u5219\u5B58\u4E86\u4E00\u5C42\uFF0C
+    // \u6574\u4E2A srclink \u53C8\u88AB\u5B58\u4E86\u4E00\u5C42\u3002\u53CD\u590D\u5C55\u5F00\u76F4\u5230\u4E0D\u518D\u53D8\u5316\u3002
+    let prev;
+    do {
+      prev = out;
+      out = out.replace(/\uE000(\d+)\uE000/g, (_, i) => stash[+i]);
+    } while (out !== prev);
+    return out;
   }
 
   // -------------------------------------------------------------- 块级
@@ -200,24 +207,41 @@
         flushParagraph(paragraph);
         const ordered = /^\s*\d+\./.test(line);
         html += ordered ? '<ol>' : '<ul>';
+        // 两层各自记录「有没有未闭合的 li」：进入嵌套时外层 li 故意不闭合
+        // （嵌套 ul 属于它），但同层相邻的项之间必须闭合。
         let openItem = false;
         let nested = false;
+        let openNestedItem = false;
         while (i < lines.length && (/^\s*([-*+]|\d+\.)\s+/.test(lines[i]) || (openItem && /^\s{2,}\S/.test(lines[i])))) {
           const item = lines[i].match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
           if (item) {
             const deep = item[1].length >= 2;
-            if (deep && !nested) { html += '<ul>'; nested = true; }
-            else if (!deep && nested) { html += '</ul>'; nested = false; }
-            if (openItem && !deep) html += '</li>';
-            html += `<li>${inline(item[3])}`;
-            openItem = true;
+            if (deep) {
+              if (!nested) {
+                html += '<ul>';
+                nested = true;
+              } else if (openNestedItem) {
+                html += '</li>';
+              }
+              html += `<li>${inline(item[3])}`;
+              openNestedItem = true;
+            } else {
+              if (nested) {
+                html += (openNestedItem ? '</li>' : '') + '</ul>';
+                nested = false;
+                openNestedItem = false;
+              }
+              if (openItem) html += '</li>';
+              html += `<li>${inline(item[3])}`;
+              openItem = true;
+            }
           } else {
             // 列表项的续行
             html += ' ' + inline(lines[i].trim());
           }
           i++;
         }
-        if (nested) html += '</ul>';
+        if (nested) html += (openNestedItem ? '</li>' : '') + '</ul>';
         if (openItem) html += '</li>';
         html += ordered ? '</ol>' : '</ul>';
         continue;
