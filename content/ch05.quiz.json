@@ -1,0 +1,155 @@
+{
+  "choice": [
+    {
+      "id": "c1",
+      "prompt": {
+        "zh": "一个轮次的第二个 step 开始时，`turn()` 里的 `target` 已经被置成 `'next-step'`。这意味着什么？",
+        "en": "By the time a turn's second step begins, `target` inside `turn()` has been set to `'next-step'`. What does that mean?"
+      },
+      "options": {
+        "zh": [
+          "第二步会把 next-turn 队列里排队的下一条提问也一起取走",
+          "第二步只取 next-step 队列，排队的提问要等下一个轮次",
+          "第二步不再从任何队列取消息，只用上一步的工具结果",
+          "第二步会把两条队列都清空"
+        ],
+        "en": [
+          "The second step also claims the next queued prompt from next-turn",
+          "The second step claims only next-step; queued prompts wait for the next turn",
+          "The second step claims nothing and uses only the previous step's tool results",
+          "The second step drains both queues"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "`claim(target, turn)` 里 `next-step` 永远全取，只有 `target === 'next-turn'` 时才额外取一条排队提问。轮次的第一个 step 用 `'next-turn'`，之后 `target = 'next-step'`，所以**一个轮次只消费一条排队提问**。第二步仍然会取 next-step 队列（steering、工具产出的上下文都在那里），只是本章实验里那个队列是空的，所以 seq 15 后面没有 user/message。",
+        "en": "In `claim(target, turn)`, `next-step` is always drained in full, and a queued prompt is taken only when `target === 'next-turn'`. A turn's first step uses `'next-turn'` and everything after sets `target = 'next-step'`, so **one turn consumes exactly one queued prompt**. The second step still claims next-step (steering and tool-produced context live there); in the lab that queue is empty, which is why there is no user/message after seq 15."
+      }
+    },
+    {
+      "id": "c2",
+      "prompt": {
+        "zh": "一个 step 里模型发起了 3 个并行工具调用，第 3 个最先执行完，第 1 个最后完成。日志里 `tool/result` 的顺序是什么？",
+        "en": "A step issues 3 parallel tool calls; the third finishes first and the first finishes last. In what order do the `tool/result` events appear in the log?"
+      },
+      "options": {
+        "zh": [
+          "按实际完成顺序：3、2、1",
+          "按模型发起顺序：1、2、3",
+          "不确定，取决于事件循环调度",
+          "三条结果合并成一条事件"
+        ],
+        "en": [
+          "In completion order: 3, 2, 1",
+          "In the order the model issued them: 1, 2, 3",
+          "Nondeterministic, depending on event-loop scheduling",
+          "The three results merge into one event"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "`commitReady` 里 `if (slot === undefined) break`：提交游标只沿连续的模型序前进，第 3 个先完成也只能在 slots 里等着。执行可以乱序，日志必须有序，否则同一组调用在两次运行里会产生两份不同的历史，重放就不确定了。这条不变式和第 4 章「日志可重放」是同一个目标。",
+        "en": "`commitReady` has `if (slot === undefined) break`: the commit cursor advances only along contiguous model order, so the third call finishing first just waits in `slots`. Execution may be out of order; the log must not be, or the same set of calls would produce two different histories across runs and replay would stop being deterministic. This invariant serves the same goal as chapter 4's replayability."
+      }
+    },
+    {
+      "id": "c3",
+      "prompt": {
+        "zh": "一个插件在 `agent/pre-step` 上注册了监听器，它在某些条件下直接 `return Promise.resolve({ kind: 'reject' })` 而不调用 `next()`。轮次会留下什么日志？",
+        "en": "A plugin registers an `agent/pre-step` listener that under some condition returns `Promise.resolve({ kind: 'reject' })` without calling `next()`. What does the turn leave in the log?"
+      },
+      "options": {
+        "zh": [
+          "什么都没有，轮次根本不会开",
+          "`turn/start` 和 `turn/end {kind:'blocked'}`，没有 step，没有 user/message",
+          "`turn/start`、`step/start`、`step/end`、`turn/end {kind:'blocked'}`",
+          "`turn/start` 之后直接抛错，`turn/end` 不会写"
+        ],
+        "en": [
+          "Nothing; the turn never opens",
+          "`turn/start` and `turn/end {kind:'blocked'}`, with no step and no user/message",
+          "`turn/start`, `step/start`, `step/end`, `turn/end {kind:'blocked'}`",
+          "It throws right after `turn/start` and `turn/end` is never written"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "`turn()` 先 `append('turn/start')` 再进 `while` 循环调 `preStep()`，所以轮次边界已经开了。`decision.kind === 'reject'` 走 `turnEnds = { kind: 'blocked' }; return false`，`finally` 里补上 `turn/end`。`step/start` 在拒绝判断之后才写，所以不会出现。被 claim 的消息也不会落成 `user/message`——它已经从 inbox 里被删掉了，注释明确说明「Rejection leaves the claimed batch removed」。本章实验第 3 步跑出来正好是四条事件。",
+        "en": "`turn()` appends `turn/start` before entering the `while` loop that calls `preStep()`, so the turn boundary is already open. `decision.kind === 'reject'` takes `turnEnds = { kind: 'blocked' }; return false`, and `finally` appends `turn/end`. `step/start` is written after the rejection test, so it never appears. The claimed message does not land as a `user/message` either: it was already removed from the inbox, and the docs state that rejection leaves the claimed batch removed. Lab step 3 produces exactly four events."
+      }
+    }
+  ],
+  "open": [
+    {
+      "id": "o1",
+      "prompt": {
+        "zh": "`turn()` 把 `turn/end` 写在 `finally` 里，而 `turnEnds` 这个变量在四个不同位置被赋值。请列出这四种结局各自对应什么情况，并说明为什么取消要保留 `signal.reason`、而失败要被压成结构化的 `LlmFailure`。另外解释 `max-tokens` 为什么是「粘性」的。",
+        "en": "`turn()` appends `turn/end` in `finally`, and `turnEnds` is assigned at four different sites. List which ending each site corresponds to, explain why cancellation preserves `signal.reason` while failure is flattened into a structured `LlmFailure`, and explain why `max-tokens` is \"sticky\"."
+      },
+      "context": [
+        { "path": "packages/core/agent-loop/src/agent.ts", "lineStart": 246, "lineEnd": 330, "note": "turn()：四个 turnEnds 赋值点与 finally" },
+        { "path": "packages/core/session/src/types.ts", "lineStart": 143, "lineEnd": 174, "note": "AgentCancelCause 与 TurnEndReasonMap" }
+      ],
+      "rubric": [
+        "必须指出 `{ kind: 'blocked' }` 对应 `agent/pre-step` 返回 reject",
+        "必须指出 `{ kind: 'completed' }` 有两个来源：第一步消息为空（唤醒消息被撤或被改写空），以及 step() 正常返回 completed",
+        "必须指出 `{ kind: 'aborted', reason }` 对应 signal 已 abort，reason 直接来自 `signal.reason`",
+        "必须指出 `{ kind: 'error', error }` 对应其他异常，`LlmError` 保留 failure，其余压成 `{ message: errorChain(error), code: 'UNKNOWN' }`",
+        "必须解释保留 `signal.reason` 的意义：重放时能分清 user / hook / parent / disposed 四种取消来源",
+        "必须解释结构化失败的意义：日志里不出现非结构化错误，任何读者都能按 code/message 处理",
+        "必须解释 max-tokens 粘性：一旦某步撞上输出上限，后续正常完成的步骤不能把整轮结论降级，因为「有内容被截断」是调用方必须知道的事实",
+        "（加分）注意到 `turn/end` 写在 finally 里，所以无论哪条退出路径边界事件都成对，重放不必处理「开了没关」",
+        "（加分）注意到第一步空消息那一支仍然占用轮次边界但不花模型调用"
+      ],
+      "reference": "四个赋值点对应四种结局。\n\n**`{ kind: 'blocked' }`**：`preStep` 返回 `{ kind: 'reject' }`，也就是某个 `agent/pre-step` 监听器没有调 `next()` 而是直接否决。轮次边界已经开了，所以要关，但一步都不走。\n\n**`{ kind: 'completed' }`** 有两个来源。一是 `phase.step === 0 && decision.messages.length === 0`：唤醒这一轮的消息在开轮之后被撤掉了，或者被插件改写成空。注释交代了取舍：A removed waking message or an enter decision rewritten to empty still owns the initial turn boundary, but it spends no model call。二是 `step()` 正常返回 `{ kind: 'completed' }`，即模型没有再发起工具调用。\n\n**`{ kind: 'aborted', reason }`**：catch 里先判 `signal.aborted`，把 `signal.reason` 原样存进去。\n\n**`{ kind: 'error', error }`**：其余异常。`LlmError` 保留它自己的 `failure` 事实，其他任何东西压成 `{ message: errorChain(error), code: 'UNKNOWN' }`。\n\n**为什么取消要保留 reason。** `AgentCancelCause` 是个四态联合：`user`、`parent`、`hook`（带 reason 字符串）、`disposed`。这四种在语义上完全不同：用户按停是正常操作，hook 拦截是策略生效，parent 停止是上级 agent 收工，disposed 是进程要退出。重放一条日志或者做审计时，「这轮为什么没跑完」的答案必须能区分这四种，否则只能看到一个笼统的「中断了」。持久化层导入旧格式时只能补一个 `{ kind: 'legacy' }`，正是因为旧记录没保留调用方。\n\n**为什么失败要结构化。** 日志是给任意读者读的：另一个进程、另一个版本的 harness、一个分析脚本。一个原始 Error 对象既不可序列化（第 4 章的 `snapshotJsonValue` 会直接拒绝它），也没有稳定的形状。压成 `{ message, code }` 之后，任何读者都能按 code 分类处理，而 `errorChain` 保证嵌套的 cause 链不丢信息。**日志里不会出现一个非结构化的错误。**\n\n**为什么 max-tokens 粘性。** 那一行是 `if (turnEnds === null || turnEnds.kind !== 'max-tokens') turnEnds = stepEnd`。一个轮次可以有多个 step：第 3 步撞了输出上限，一个插件（或者工具产出的上下文）让轮次继续，第 4 步正常完成。如果不粘，`turn/end` 就会记成 `completed`，调用方以为这轮说完了。但事实是第 3 步的助手消息是被截断的，surface 上留着一段不完整的内容。「有东西被截断」是必须上报的事实，所以一旦置上就不许降级。\n\n最后，这四个赋值点都只是给变量赋值，真正的 `append('turn/end', ...)` 在 `finally` 里。所以无论正常返回、`return false`、还是抛异常，轮次边界一定成对，重放的人永远不用处理「开了没关」的日志。"
+    },
+    {
+      "id": "o2",
+      "prompt": {
+        "zh": "`step()` 每一步都调用 `this.session.deriveMessages()` 重新派生消息历史，而不是维护一个自己的消息数组。请说明这个选择带来了什么，并举出至少两个「不需要通知驱动器就能生效」的场景。同时解释 `chunkSeqs` 是怎么攒起来的、用在哪里。",
+        "en": "`step()` calls `this.session.deriveMessages()` on every step instead of maintaining its own message array. Explain what that buys, and name at least two things that take effect \"without notifying the driver\". Also explain how `chunkSeqs` is accumulated and what it is used for."
+      },
+      "context": [
+        { "path": "packages/core/agent-loop/src/agent.ts", "lineStart": 332, "lineEnd": 401, "note": "step()：deriveMessages 与 chunkSeqs" },
+        { "path": "packages/core/session/src/index.ts", "lineStart": 726, "lineEnd": 747, "note": "deriveMessages 的增量缓存" },
+        { "path": "packages/core/agent-loop/src/tool-calls.ts", "lineStart": 268, "lineEnd": 288, "note": "appendToolResult 也带 sourceEventSeqs" }
+      ],
+      "rubric": [
+        "必须指出驱动器不持有任何消息数组，每步的请求历史都从会话日志重新派生",
+        "必须指出这让「改变模型看到的历史」这件事只需要往日志里 append，不需要任何人通知驱动器",
+        "必须至少举出两个场景：压缩（append 一条 replace 事件）、steering / inject（往 next-step 塞消息）、工具产出的 additionalContexts，任选两个",
+        "必须指出 `chunkSeqs` 是 `session.append('assistant/chunk', …).seq` 的返回值累积而成",
+        "必须指出 `chunkSeqs` 作为 `sourceEventSeqs` 挂在 `assistant/message` 上，构成从消息到原始流的溯源链",
+        "（加分）注意到 `deriveMessages` 本身有增量缓存，所以每步重新派生并不昂贵，代价是 O(新节点)",
+        "（加分）注意到 `tool/result` 也用同样的方式引用它的 `tool/call` seq，溯源是全链条的",
+        "（加分）注意到派生结果是共享且深冻结的对象，驱动器不可能污染日志"
+      ],
+      "reference": "**驱动器不持有消息数组。** `step()` 里那一行 `this.session.deriveMessages()` 是每一步都重新调用的，它返回的是第 4 章讲的那个增量缓存的一份新数组快照。\n\n这带来一个很强的性质：**改变模型看到的历史，只需要往日志里 append，不需要通知任何人。** 因为下一步的请求会重新派生一次，自然就用上了新状态。\n\n至少三类东西受益于此：\n\n1. **压缩。** 一个压缩插件在两步之间 append 一条 `surfaceOp: { op: 'replace', … }` 的事件，surface 立刻收缩，`replaceGeneration` 变化让消息缓存作废重建，下一步的请求就用上了压缩后的历史。压缩插件和驱动器之间没有任何直接调用。\n2. **steering / inject。** 往 `next-step` 队列塞的消息会在下一个 step 边界被 claim，然后由 `turn()` append 成 `user/message`，同样是先进日志再被派生看到。\n3. **工具产出的上下文。** `executeToolCalls` 的 `acceptContext` 回调把结果附带的 `additionalContexts` 直接塞进 `next-step`，走的是同一条路。\n\n如果驱动器自己维护一个 `messages` 数组，上面每一件事都得多一条通知路径，而且随时可能和日志不一致。现在只有一份真相。\n\n代价看起来是「每步重新派生一遍全部历史」，但 `deriveMessages` 是增量的：`derivedNodes` 游标记住已经投影过多少个 surface 节点，一次调用只处理新增的那几个，成本是 O(新节点) 而不是 O(全历史)。只有 replace 会让它整体重建，而压缩本来就不频繁。返回的数组是新的，里面的 `Message` 对象共享且深冻结，所以驱动器不可能污染日志。\n\n**`chunkSeqs`** 的攒法是这一行：\n\n```ts\nchunkSeqs.push(this.session.append('assistant/chunk', { turn, step, chunk }).seq)\n```\n\n`append` 的返回值是那条已入日志的事件，`.seq` 就是它的序号。流结束后，这个数组作为 `sourceEventSeqs` 挂在 `assistant/message` 上：\n\n```ts\nthis.session.append('assistant/message', { … }, { surfaceOp: 'append', sourceEventSeqs: chunkSeqs })\n```\n\n于是日志里有一条完整的溯源链：这条助手消息是由那几条原始分片拼出来的。第 4 章讲过 `sourceEventSeqs` 在压缩场景下的用途（登记被遮蔽的节点），这里是它的另一半用途（登记生产来源）。同一个机制在 `tool/result` 上也用了一次，`appendToolResult` 把对应 `tool/call` 的 seq 写进去，所以调用与结果的配对也是日志里的硬数据。"
+    },
+    {
+      "id": "o3",
+      "prompt": {
+        "zh": "`send()` 的第一行注释说 `wakingAfterAbort` 必须在插入 inbox **之前**计算。请说明如果放到插入之后会出什么问题，这个问题的触发路径经过哪些机制。另外说明 `wakeDriver` 里的 `wakeRequested` 闩在防什么，以及为什么 `disposed` 这个取消原因被排除在闩之外。",
+        "en": "The comment on `send()` says `wakingAfterAbort` must be computed **before** the inbox insertion. Explain what breaks if it is computed after, and which mechanisms that failure path runs through. Also explain what the `wakeRequested` latch in `wakeDriver` guards against, and why the `disposed` cancel cause is excluded from it."
+      },
+      "context": [
+        { "path": "packages/core/agent-loop/src/agent.ts", "lineStart": 113, "lineEnd": 120, "note": "send()：先分类后插入" },
+        { "path": "packages/core/agent-loop/src/agent.ts", "lineStart": 172, "lineEnd": 193, "note": "wakeDriver 与 wakeRequested 闩" },
+        { "path": "packages/core/agent/src/inbox.ts", "lineStart": 158, "lineEnd": 193, "note": "mutate：splice 会 append 一条日志事件" },
+        { "path": "packages/core/session/src/index.ts", "lineStart": 636, "lineEnd": 654, "note": "append 同步调用 session/event 监听器" }
+      ],
+      "rubric": [
+        "必须指出 `inbox.splice` 内部会 `session.append('agent/inbox/spliced', …)`",
+        "必须指出 `append` 会同步调用一批 `session/event` 监听器（第 4 章的提交后调用）",
+        "必须指出这些监听器中任何一个都可能反过来调 `agent.cancel()`，从而使 `phase.abort.signal.aborted` 在插入前后取值不同",
+        "必须指出后果：同一条消息会因为一个观察者的副作用被重新分类，从「加入当前活动」变成「另起一轮」（或反过来）",
+        "必须指出 `wakeRequested` 闩防的是「唤醒送不到」的两种情况：maintenance 阶段没有 step 边界，以及驱动器已被 abort 正在退出",
+        "必须指出闩在收敛点（kick / runMaintenance 的 finally）被重放",
+        "必须指出 `disposed` 被排除是因为销毁时不应该再起一轮新的模型调用，否则卸载会被一个新轮次拖住",
+        "（加分）注意到 `turn()` 结尾换新 AbortController 时会把 `wakeRequested` 清掉，因为旧 controller 上的闩已经过期",
+        "（加分）注意到这类「先算后改」的模式在 DSH 里反复出现（第 4 章 append 先解析监听器名单再 push）"
+      ],
+      "reference": "**为什么必须先算后插。**\n\n`this.inbox.splice(...)` 不是一个纯内存操作。`Inbox.mutate` 里第一件事就是 `this.session.append('agent/inbox/spliced', splice)`，而第 4 章讲过 `Session.append` 在 `log.push` 之后会**同步**逐个调用 `session/event` 监听器。这些监听器是任意插件注册的：UI 桥、持久化、审计、hook。其中任何一个都可以在回调里调 `agent.cancel(...)`，而 `cancel` 会 `this.phase.abort.abort(cause)`。\n\n于是 `this.phase.abort.signal.aborted` 的取值在 `splice` 前后可能不同。如果分类写成\n\n```ts\nthis.inbox.splice(target, Infinity, 0, [message])\nconst wakingAfterAbort = wakeup && this.phase.kind !== 'idle' && this.phase.abort.signal.aborted  // 错\n```\n\n那么一条本该加入当前活动的 steering 消息，会因为某个观察者的副作用被重新分类成「另起一轮」。更糟的是这条消息**已经按旧分类插进了某条队列**，分类和落点就此不一致。\n\n注释把这件事说得很直接：Captured before the insertion so a reentrant cancel from a splice observer cannot reclassify it。先算后改，分类在插入前就锁死了。这个模式在 DSH 里反复出现，第 4 章 `append` 先解析监听器名单再 push 是同一个思路。\n\n**`wakeRequested` 闩防什么。**\n\n通常新消息到达时不需要额外动作：活着的驱动器会在下一个 step 边界自己去 `claim`。但有两种情况唤醒送不到：\n\n1. 当前是 `maintenance`（压缩之类的活跃），根本没有 step 边界；\n2. 当前驱动器**已经被 abort**，它正沿退出路径往外走，不会再 claim。\n\n这两种情况把 `wakeRequested = true` 记下，等收敛点重放：`kick` 的 `finally` 和 `runMaintenance` 的 `finally` 都有一句 `if (wakeRequested && this.inbox.hasPending) this.wakeDriver()`。没有这个闩，在 maintenance 期间发来的消息会一直躺在队列里，直到下一次有人主动唤醒为止。\n\n**为什么 `disposed` 例外。**\n\n`reason?.kind !== 'disposed'` 这个判断把销毁排除在闩之外。销毁意味着整个 agent 要下线了，此时留一个闩会让收敛点再起一轮新的模型调用，卸载就被一次完整的轮次拖住了。源码注释：disposal never latches, so teardown waits on no model turn。\n\n配套的还有 `turn()` 结尾那两行：换新 `AbortController` 的同时把 `phase.wakeRequested = false`。因为闩是记在旧 controller 对应的那段生命周期上的，新一轮开始后活着的驱动器会自己 claim 队列，旧闩已经过期。"
+    }
+  ]
+}

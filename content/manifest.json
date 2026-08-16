@@ -72,7 +72,7 @@
     {
       "id": "ch05",
       "no": 5,
-      "ready": false,
+      "ready": true,
       "stage": {
         "zh": "心脏",
         "en": "The heart"
