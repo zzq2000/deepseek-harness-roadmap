@@ -98,7 +98,7 @@
     {
       "id": "ch07",
       "no": 7,
-      "ready": false,
+      "ready": true,
       "stage": {
         "zh": "上下文",
         "en": "Context"

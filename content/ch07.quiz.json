@@ -1,0 +1,150 @@
+{
+  "choice": [
+    {
+      "id": "c1",
+      "prompt": {
+        "zh": "工具名排序用的是 `a.name < b.name` 这样的手写比较，而不是 `localeCompare`。为什么？",
+        "en": "Tool names are sorted with a hand-written `a.name < b.name` comparison rather than `localeCompare`. Why?"
+      },
+      "options": {
+        "zh": [
+          "`localeCompare` 太慢，工具数量多时是性能瓶颈",
+          "工具 schema 是请求前缀的一部分，排序依赖 locale 会让同一会话在不同机器上产生不同前缀，KV cache 失效",
+          "`localeCompare` 不支持中文工具名",
+          "为了让 `toolOrder` 配置项能正确插入 `<unlisted-tools>`"
+        ],
+        "en": [
+          "`localeCompare` is too slow and becomes a bottleneck with many tools",
+          "Tool schemas are part of the request prefix; a locale-dependent sort would give one session different prefixes on different machines, invalidating the KV cache",
+          "`localeCompare` does not support non-ASCII tool names",
+          "So that the `toolOrder` setting can insert `<unlisted-tools>` correctly"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "注释原文是 `locale-independent, so the order is identical on every machine`。提示词的每一个字节都是缓存前缀，section 顺序、工具顺序、变量值任何一处不确定，恢复会话时 KV cache 就会失效。",
+        "en": "The comment reads `locale-independent, so the order is identical on every machine`. Every byte of the prompt is cache prefix: any nondeterminism in section order, tool order, or variable values invalidates the KV cache on session resume."
+      }
+    },
+    {
+      "id": "c2",
+      "prompt": {
+        "zh": "`RuntimeContextProjection` 的 `retained` 字段有三个状态：`undefined`、`null`、和一个对象。`undefined` 和 `null` 的区别是什么？",
+        "en": "`RuntimeContextProjection`'s `retained` field has three states: `undefined`, `null`, and an object. What distinguishes `undefined` from `null`?"
+      },
+      "options": {
+        "zh": [
+          "`undefined` 表示还没初始化完，`null` 表示初始化完但没有上下文",
+          "`undefined` 表示这个会话从来没有过快照，`null` 表示有过但已经不在 surface 上（被压缩掉了）；区分二者是为了决定要不要发 CLEARED 那条消息",
+          "`undefined` 是 TypeScript 的可选字段默认值，`null` 是显式清空，语义上等价",
+          "`undefined` 表示上下文为空，`null` 表示上下文非空但未变化"
+        ],
+        "en": [
+          "`undefined` means initialization is incomplete; `null` means it finished with no context",
+          "`undefined` means this session never had a snapshot; `null` means one existed but is no longer on the surface (compacted away). The distinction decides whether to emit the CLEARED message",
+          "`undefined` is TypeScript's default for an optional field and `null` is an explicit clear; they are semantically equivalent",
+          "`undefined` means the context is empty; `null` means it is non-empty but unchanged"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "声明上的注释是 `undefined` means no snapshot ever existed; `null` means none is retained。上下文从有变无时要发 CLEARED，因为历史里那条旧快照还在，不说一声模型会继续按它行事；而从来没有过上下文的会话不需要发。`null` 由构造函数里那个监听器写入：保留的那条被 surface 替换（也就是被压缩）吃掉了。",
+        "en": "The declaration comment reads: `undefined` means no snapshot ever existed; `null` means none is retained. Going from present to absent must emit CLEARED, because the stale snapshot is still in history and the model would keep acting on it; a session that never had context needs no such message. `null` is written by the constructor's listener when the retained snapshot is swallowed by a surface replacement, that is, compacted."
+      }
+    },
+    {
+      "id": "c3",
+      "prompt": {
+        "zh": "压缩摘要的那次辅助模型调用，把「压缩指令」放在最后一条 user 消息里，而不是用一个专门的 summarizer system prompt。为什么？",
+        "en": "The auxiliary summarization call puts the compaction directive in the final user message instead of using a dedicated summarizer system prompt. Why?"
+      },
+      "options": {
+        "zh": [
+          "system prompt 有长度上限，压缩指令太长放不下",
+          "带上会话自己的 system prompt、tools 和消息前缀，这次调用就是上一次真实请求的真前缀，provider 的 KV cache 能直接命中",
+          "user 消息比 system 消息权重更高，模型更容易遵守",
+          "为了让压缩指令能被记进会话日志"
+        ],
+        "en": [
+          "The system prompt has a length cap the directive would exceed",
+          "Carrying the conversation's own system prompt, tools, and message prefix makes the call a genuine prefix of the last real request, so the provider's KV cache hits",
+          "User messages carry more weight than system messages, so the model follows them more reliably",
+          "So the directive gets recorded in the session log"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "注释原文：`Keeping the conversation's own system prompt, tools, and message prefix in front of it makes the auxiliary call a genuine prefix of the last routed request, so the provider's KV cache is reused instead of invalidated.` 换一个专用 system prompt，前缀从第一个 token 就不同，整段缓存作废。",
+        "en": "The comment reads: `Keeping the conversation's own system prompt, tools, and message prefix in front of it makes the auxiliary call a genuine prefix of the last routed request, so the provider's KV cache is reused instead of invalidated.` A dedicated system prompt would differ from the first token and discard the cached prefix."
+      }
+    }
+  ],
+  "open": [
+    {
+      "id": "o1",
+      "prompt": {
+        "zh": "`interpolate()` 对 `{{name}}` 的处理有四条规则：什么时候算格式错误、未注册的名字怎么办、注册了但没值怎么办、替换进去的值要不要再扫描。逐条说明每条规则在防什么。特别解释为什么用 `Object.hasOwn` 而不是直接取值判断 `undefined`。",
+        "en": "`interpolate()` applies four rules to `{{name}}`: when a reference counts as malformed, what happens to an unregistered name, what happens to a registered but valueless name, and whether substituted values are rescanned. Explain what each rule prevents. In particular explain why `Object.hasOwn` is used rather than reading the value and testing for `undefined`."
+      },
+      "context": [
+        { "path": "packages/core/system-prompt/src/index.ts", "lineStart": 257, "lineEnd": 295, "note": "interpolate 全文" },
+        { "path": "packages/core/system-prompt/src/index.ts", "lineStart": 133, "lineEnd": 137, "note": "VARIABLE_NAME 与 GROUP_AT" },
+        { "path": "packages/core/system-prompt/src/index.ts", "lineStart": 204, "lineEnd": 217, "note": "renderPrompt 的 JSDoc" }
+      ],
+      "rubric": [
+        "必须指出「有后续 `}}` 才算格式错误，否则原样保留」这条，以及它防的是提示词里合法出现的 `{{`（代码示例、Handlebars 教程）被误判",
+        "必须指出未注册的名字抛错，且错误信息里带上已注册变量列表",
+        "必须解释 Object.hasOwn 的理由：直接取值会让 `{{constructor}}`、`{{tostring}}` 这类名字通过原型链解析到一个函数上；VARIABLE_NAME 只挡大写，挡不住全小写的 constructor",
+        "必须指出「注册了但这次 provider 返回 undefined」也抛错，理由是让缺失的值响亮地失败，而不是把 undefined 或空串发给模型",
+        "必须指出替换进去的值不再扫描（result 只追加、last 跳过整个引用），并说明这是注入防线：变量值常来自 cwd、git 分支、文件内容等用户环境",
+        "（加分）注意到 `{{}}` 空名会走 VARIABLE_NAME 失败的那条路，被当作格式错误",
+        "（加分）注意到错误信息里都带 `${kind}` 和 `input.name`，把失败归属到具体的 section 或 context"
+      ],
+      "reference": "四条规则各防一件事。\n\n第一条，格式判定。扫到 `{{` 之后先用 GROUP_AT 试着匹配一个完整的 `{{name}}` 组，匹配不上时再看后面还有没有 `}}`：有就抛 malformed，没有就把这两个字符原样写进结果并继续。理由写在注释里：A later closing brace makes this malformed; otherwise it is literal prose。提示词里出现 `{{` 是很正常的事，讲 Handlebars、贴模板代码、写正则，都会带上它。只有当它看起来像一个写坏了的引用（有开有闭但中间不合法）时才报错。\n\n第二条，未注册的名字。判据用 Object.hasOwn(variables, name)，不是 variables[name] !== undefined。注释写的是 Do not resolve unregistered names through Object.prototype。如果直接取值，`{{constructor}}` 会拿到 Object.prototype.constructor 这个函数，`{{tostring}}` 之类同理（虽然 toString 有大写，但原型链上的属性不止这些）。VARIABLE_NAME 是 /^[a-z][a-z0-9_]*$/，它挡掉了大写字母，但 constructor 全小写完全合法，能穿过正则。Object.hasOwn 只认自有属性，把整条原型链排除在外。抛错时还把 Object.keys(variables) 列出来，让写提示词的人直接看到有哪些可用。\n\n第三条，有名字没值。variable() 的 provider 签名允许返回 undefined，但引用了它的 section 渲染时会抛 `has no value for this assembly`。这是有意选择的失败方式：一个 `{{workspace_root}}` 在没有工作区的时候，渲染成字符串 'undefined' 或空串发给模型，模型会拿着一个错误的事实继续工作，而且没人会发现。抛错则会在组装阶段就停下来。注意这条和第二条被区分成两个不同的错误信息，因为修法不同：一个是去注册变量，一个是去查 provider 为什么没给值。\n\n第四条，不重扫。循环里 result 只做追加（result += text.slice(last, open) + value），last 直接跳到 open + group[0].length，也就是整个引用之后。JSDoc 明说 substituted values are not scanned again。这是最直接的注入防线：变量值经常来自用户环境，cwd、git 分支名、读进来的文件片段，这些内容里出现 `{{something}}` 完全可能。如果重扫，一个恰好叫 `{{persona}}` 的目录名就能触发第二轮解析，甚至递归。不重扫让变量值永远是字面量。\n\n还有一处细节：`{{}}` 会被 GROUP_AT 匹配上，取出的 name 是空串，然后 VARIABLE_NAME.test('') 失败，走 malformed 那条路。源码注释专门标注了这一点。所有错误信息都带上 ${kind}（section 还是 context）和 input.name，所以失败能精确归属到某一段注册。"
+    },
+    {
+      "id": "o2",
+      "prompt": {
+        "zh": "tool-skill 里有两个 `agent/pre-step` 监听器：一个注入 `/name` 手势对应的 skill 正文，一个发布 skill 目录。说明为什么最终顺序是「目录在前、正文在后」，这个顺序由什么决定；再说明目录的重复抑制是怎么做的，以及为什么 `toolVisible` 要比较定义对象本身而不是工具名。",
+        "en": "tool-skill installs two `agent/pre-step` listeners: one injects the skill body for a `/name` gesture, one publishes the skill catalog. Explain why the final order is catalog first, body second, and what determines that order. Then explain how duplicate catalogs are suppressed, and why `toolVisible` compares the definition object rather than the tool name."
+      },
+      "context": [
+        { "path": "packages/skill/tool-skill/src/index.ts", "lineStart": 163, "lineEnd": 204, "note": "手势注入监听器与它上面那段注释" },
+        { "path": "packages/skill/tool-skill/src/index.ts", "lineStart": 206, "lineEnd": 251, "note": "目录监听器与 toolVisible" },
+        { "path": "packages/skill/tool-skill/src/index.ts", "lineStart": 409, "lineEnd": 430, "note": "SKILL_GESTURE 与 invokedSkillNames" }
+      ],
+      "rubric": [
+        "必须指出两个监听器都是先 await next() 再追加自己的消息，所以在 waterfall 里先注册的在外层、最后追加",
+        "必须指出手势监听器注册在目录监听器之前，因此正文排在目录之后",
+        "必须说明这个顺序的意图：背景材料在前（工作区规则、运行时策略、目录），模型要执行的材料在后，紧挨着它作答的位置",
+        "必须说明目录的重复抑制：算 entries 的 digest，与本会话已可见的 digest 相同就不发；而且如果这一步的消息列表里已经有一条同样的目录，还要把它过滤掉",
+        "必须解释 toolVisible 比较 ctx.tools.get(skillTool.name, agent) === skillTool 是在比较定义对象身份，防止某个 agent 用同名的 `skill` 工具遮蔽后继承这份目录",
+        "（加分）注意到目录和工具的可见性绑定意味着工具被限制掉时 schema 和调用指引一起消失，不会出现「告诉模型有工具可调但 schema 里没有」的状态",
+        "（加分）注意到 invokedSkillNames 只扫 source.kind === 'user' 的消息，且认不出的名字保持普通散文不报错"
+      ],
+      "reference": "顺序由注册顺序决定，方向和直觉相反。两个监听器的结构都是 `const decision = await next()` 在前、追加自己的消息在后。Cordis 的 waterfall 里先注册的监听器在外层，它调用 next() 让内层先跑完，拿回内层已经追加好的列表，再往后面追加自己的。所以「先注册」等于「最后追加」。手势注入监听器写在 ctx.tools.register(skillTool) 之后、目录监听器之前，于是最终顺序是：claimed 用户消息、运行时快照、目录、skill 正文。\n\n源码注释把意图写清楚了：background first (workspace rules, runtime policy, the catalog), the material the model must act on last, closest to its answer。背景材料放前面，模型真正要照着做的东西放在最靠近它作答的位置。注释还特别说明 Registration order makes that placement deterministic，也就是说这不是巧合，是被当作契约维护的。\n\n目录的重复抑制有两层。第一层是 digest：把要发布的 entries（名字 + 截断后的描述）算一个摘要，和 catalogHistory(agent) 里记录的「本会话当前可见的 digest」比较，相同就直接返回，不发新的。第二层更细：即使 digest 相同，也要检查这一步的 decision.messages 里是不是已经被别人放了一条目录消息，有就用 filter 把它摘掉。反过来，digest 不同但列表里那条现有目录的 entries 恰好算出相同 digest，则保留现有那条不动。目的都一样：同一个请求里绝不出现两份目录，会话里也不出现内容相同的第二份。\n\ntoolVisible 那一行比较的是对象身份：ctx.tools.get(skillTool.name, agent) === skillTool。注释解释为 Exact definition identity prevents a scoped shadow merely named `skill` from inheriting this catalog。ctx.tools.register() 是按调用方的 scope 归档的，一个装在 agent preset 里的插件只为那个 agent 注册。如果某个 agent 用自己的 `skill` 工具遮蔽了这一个，按名字查会查到那个替身，于是这份目录就会被错误地发给一个根本不认识这些名字的工具。比较定义对象本身杜绝了这种情况。\n\n这个绑定还有一个正面效果：工具因为限制而对某个 agent 不可见时，snapshot 直接取空，目录整块消失。schema 和调用指引一起出现、一起消失，不会出现「系统提示词告诉模型有个 skill 工具可以调，但请求的 tools 字段里没有它」这种自相矛盾的状态。\n\n手势那一侧还有一道独立的防线：invokedSkillNames 只扫 message.source.kind === 'user' 的消息，工具结果、模型输出、别的插件注入的文本里的斜杠一律不算，注释写的是 no other source can forge a gesture。认不出的名字（未注册，或者 userInvocable 为 false）保持普通散文，不报错，因为 /tmp/foo 这样的路径和闲聊里的斜杠不该让轮次失败。"
+    },
+    {
+      "id": "o3",
+      "prompt": {
+        "zh": "一次压缩会写四条日志：`compaction/start`、`compaction/summary`、一条带 `surfaceOp: replace` 的 `user/message`、`compaction/end`。说明 `compaction/start` 为什么必须和校验同步相邻、它起什么作用；说明 `summary` 和 `replace` 为什么必须相邻；再解释为什么 `shadowedRange` 的 `start` 可能大于 `end`。",
+        "en": "One compaction writes four log events: `compaction/start`, `compaction/summary`, a `user/message` carrying `surfaceOp: replace`, and `compaction/end`. Explain why `compaction/start` must be synchronously adjacent to validation and what role it plays; why `summary` and `replace` must be adjacent; and why `shadowedRange.start` can exceed `end`."
+      },
+      "context": [
+        { "path": "packages/compaction/compaction-basic/src/region.ts", "lineStart": 136, "lineEnd": 251, "note": "compactSurfaceRegion：校验、start、稳定性检查、提交" },
+        { "path": "packages/compaction/compaction-basic/src/region.ts", "lineStart": 427, "lineEnd": 478, "note": "commitCompactionBody：两次 append 之间不 yield" },
+        { "path": "packages/compaction/compaction/src/types.ts", "lineStart": 24, "lineEnd": 119, "note": "compaction/* 事件声明与 CompactionResult" }
+      ],
+      "rubric": [
+        "必须指出校验与 session.append('compaction/start') 之间没有 await，所以这条日志成为压缩锁，之后任何一次压缩进来都会被 assertCompactionInactive 拒绝",
+        "必须指出锁住在日志里而不是内存里，因此进程重启后未闭合的 start 仍然可见；失败时也会尝试写一条带 error 的 compaction/end",
+        "必须指出 summary 与 replace 相邻是 shadow price 协议：replace 的价格由紧挨在它前面的计量事件给出，纯消费者不必为每个节点保存价格",
+        "必须指出 commitCompactionBody 的注释是 without yielding，两次 append 之间不能有 await，否则相邻性被破坏",
+        "必须解释 shadowedRange 是 surface 位置区间不是 seq 数值区间：一次 replace 把新的高 seq 摘要节点放在旧范围的位置上，于是 surface 顺序与 seq 大小脱钩，start 可能大于 end；shadowedSeqs 才是权威的、按 surface 顺序的那一份",
+        "（加分）注意到摘要是异步的，回来后要做稳定性检查，自动压缩用 assertWholeSurfaceUnchanged、手动压缩用 assertSelectedSpanStable，后者允许选中段之外新增消息",
+        "（加分）注意到 compaction/prune 走同一套 shadow price 协议，model-free 的剪枝和摘要压缩产出不同、协议相同"
+      ],
+      "reference": "compaction/start 是锁。compactSurfaceRegion 里，validateSurfaceRegion、inspectCompactionEntryState、assertCompactionInactive 三步做完之后紧接着就是 session.append('compaction/start', lifecycle)，中间一个 await 都没有。函数注释写的是 Idle/log validation and compaction/start are synchronously adjacent, so the durable opening marker is the compaction lock before summarization yields。因为 JavaScript 是单线程的，同步区间内不可能有别的代码插进来，所以「校验通过」和「宣布占用」之间不存在竞态窗口。之后任何一次压缩进来，inspectCompactionEntryState 会找到一个没有配对 compaction/end 的 start，assertCompactionInactive 直接拒绝。\n\n锁住在日志里而不是内存里，这是关键选择。好处是它跨进程重启存活：崩溃留下的未闭合 start 在恢复会话时仍然可见，可以被诊断出来。代价是失败路径必须认真处理，所以 catch 里会尝试补写一条带 error 字段的 compaction/end；连这条都写失败时，代码故意让未闭合的 start 留在那里（注释：a failed close deliberately leaves the unmatched start detectable），因为静默地假装没发生过更糟。\n\nsummary 与 replace 相邻是 shadow price 协议。事件声明里写着 That adjacency is contractual — the shadowed pricing fields are the replacement's shadow price, so a consumer may pair a replacement with the metering event directly before it。一条 replace 事件本身不携带「被换掉的内容值多少 token」，这个数字在紧挨着它前面的 compaction/summary 的 shadowedTokenCount 里。这样一个纯投影消费者（比如 token 计数）看到 replace，往前退一条就能减掉正确的数，不需要为 surface 上每个节点维护价格表。commitCompactionBody 的函数注释是 Append one completed summary record and replacement body without yielding，两次 append 之间不能有 await，否则别的代码可能在中间插入事件，相邻性就断了。model-free 的剪枝走同一套协议，只是计量事件换成 compaction/prune。\n\nshadowedRange 的 start 可能大于 end，因为它是 surface 位置区间，不是 seq 数值区间。CompactionResult 的 JSDoc 说得很直接：after a prior replace lands a fresh high-seq summary node at an older range's position, start can be GREATER than end。一次 replace 的效果是把一个刚刚 append 的、seq 很大的摘要节点，放到被替换的那段范围在 surface 上的位置去。第二次压缩时，这个高 seq 节点在 surface 顺序里排在很多低 seq 节点前面。本章实验跑六轮之后的最终 surface 是 [79, 71, 82, 87]，79 排在 71 前面就是这个现象。所以任何按 seq 排序来重建 surface 的代码都会出错，CompactionResult 里 shadowedSeqs 被显式声明为权威的、按 surface 顺序的那一份。\n\n摘要是异步的，回来之后还要检查 surface 有没有变。自动压缩用 assertWholeSurfaceUnchanged，要求整个 surface 的计量结果逐节点相等，因为它跑在轮次内部本来就不该有别人写入；手动压缩用 assertSelectedSpanStable，只要求选中的那一段还是同一组 seq、价格相同、仍然是合法的替换目标，因为手动压缩期间用户可能继续说话，那些新消息在选中段之外，不该让摘要作废。"
+    }
+  ]
+}
