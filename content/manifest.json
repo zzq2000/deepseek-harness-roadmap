@@ -111,7 +111,7 @@
     {
       "id": "ch08",
       "no": 8,
-      "ready": false,
+      "ready": true,
       "stage": {
         "zh": "工具",
         "en": "Tools"

@@ -66,7 +66,7 @@ DEEPSEEK_BASE_URL_OPENAI=https://api.deepseek.com
 | 心脏 | 5 | Agent Loop：一次轮次的完整生命周期 | ✅ |
 | 模型 | 6 | LLM 层：流式协议与适配器契约 | ✅ |
 | 上下文 | 7 | 提示词组装、skill 与压缩 | ✅ |
-| 工具 | 8 | 工具注册与受保护的执行流水线 | 待写 |
+| 工具 | 8 | 工具注册与受保护的执行流水线 | ✅ |
 | 工具 | 9 | 能力 seam 与安全边界 | 待写 |
 | 编排 | 10 | subagent、workflow 与后台任务 | 待写 |
 | 边界 | 11 | 概要：typert RPC 与 host/client 分层 | 待写 |

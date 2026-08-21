@@ -1,0 +1,152 @@
+{
+  "choice": [
+    {
+      "id": "c1",
+      "prompt": {
+        "zh": "`tools.guard()` 注册的守卫被称为「单调的」（monotonic）。这在代码里的具体含义是什么？",
+        "en": "A guard registered through `tools.guard()` is called monotonic. What does that mean concretely in the code?"
+      },
+      "options": {
+        "zh": [
+          "守卫按注册顺序依次执行，后注册的覆盖先注册的",
+          "守卫只能拒绝（返回一个字符串理由），没有任何守卫能放行另一个守卫已经拒绝的调用；而且只有 `pre-execute` 判 allow 时才会问到守卫",
+          "守卫的判定结果会被缓存，同一个工具第二次调用不再重新判定",
+          "守卫必须是同步函数，因此不能做 I/O"
+        ],
+        "en": [
+          "Guards run in registration order, and later ones override earlier ones",
+          "A guard can only deny (by returning a reason string); no guard can allow a call another guard denied, and guards are consulted only when `pre-execute` returned allow",
+          "A guard's verdict is cached, so a second call to the same tool is not re-checked",
+          "Guards must be synchronous, so they cannot do I/O"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "`guardReason()` 遍历全局层再遍历 scope 链，任何一层返回字符串就终止并拒绝，没有「放行」这个返回值。而 `tools/pre-execute` 是 waterfall，一个监听器不调 `next()` 就能替所有人放行。所以策略协商用 pre-execute，硬性禁止用 guard。守卫确实必须同步，但那是另一件事，不是「单调」的含义。",
+        "en": "`guardReason()` walks the global layer then the scope chain, stopping and denying at the first string returned; there is no \"allow\" return value. `tools/pre-execute` is a waterfall, where a listener that skips `next()` allows for everyone. Policy negotiation goes to pre-execute, hard prohibition to guards. Guards are indeed synchronous, but that is a separate fact, not what monotonic means."
+      }
+    },
+    {
+      "id": "c2",
+      "prompt": {
+        "zh": "一个 agent 用 `restrict({ deny: ['bash'] })` 之后，它再调用 `bash`，拿到的错误是什么？",
+        "en": "After an agent applies `restrict({ deny: ['bash'] })`, what error does it get when it calls `bash`?"
+      },
+      "options": {
+        "zh": [
+          "`TOOL_RESTRICTED`，明确告知该工具存在但被限制",
+          "`UNKNOWN_TOOL`，`unknown tool \"bash\"`，和调用一个拼错的名字完全一样",
+          "`ask` 决定，转交审批服务由用户决定是否放行",
+          "调用直接抛异常，不返回结果"
+        ],
+        "en": [
+          "`TOOL_RESTRICTED`, stating explicitly that the tool exists but is restricted",
+          "`UNKNOWN_TOOL`, `unknown tool \"bash\"`, exactly like calling a misspelled name",
+          "An `ask` decision routed to the approval service for the user to decide",
+          "The call throws instead of returning a result"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "被限制的工具在这个 agent 的视图里根本不存在：`ctx.tools.get('bash', agent)` 返回 `undefined`，schema 列表里没有它，调用报 `UNKNOWN_TOOL`。模型没有办法从错误信息推断出「这个部署有 bash，只是不给我用」。唯一的例外是 Code Mode 塌缩，那时名字确实在提示词里出现过，所以拒绝理由会带上正确的调用方式。",
+        "en": "A restricted tool simply does not exist in that agent's view: `ctx.tools.get('bash', agent)` returns `undefined`, it is absent from the schema list, and calling it reports `UNKNOWN_TOOL`. The model cannot infer from the error that the deployment has bash and is withholding it. The one exception is the Code Mode collapse, where the name did appear in the prompt, so the denial carries the correct calling route."
+      }
+    },
+    {
+      "id": "c3",
+      "prompt": {
+        "zh": "一个工具没有声明 `isConcurrencySafe`，另一个工具的 `isConcurrencySafe` 谓词抛了异常。`executionMode()` 分别判定成什么？",
+        "en": "One tool declares no `isConcurrencySafe`; another's `isConcurrencySafe` predicate throws. What does `executionMode()` decide in each case?"
+      },
+      "options": {
+        "zh": [
+          "都是 `parallel`：没有明确禁止就允许并发",
+          "都是 `exclusive`：没声明、返回非 `true`、谓词抛异常，三条路都倒向保守的一边",
+          "未声明的是 `parallel`，抛异常的整次调用失败",
+          "未声明的是 `exclusive`，抛异常的会把异常传播给调用方"
+        ],
+        "en": [
+          "Both `parallel`: absent a prohibition, concurrency is allowed",
+          "Both `exclusive`: undeclared, returning anything but `true`, and a throwing predicate all fall to the conservative side",
+          "Undeclared is `parallel`; a throwing predicate fails the whole call",
+          "Undeclared is `exclusive`; a throwing predicate propagates the exception to the caller"
+        ]
+      },
+      "answer": 1,
+      "explain": {
+        "zh": "`executionMode()` 里三条路都返回 `{ kind: 'exclusive' }`。那个 `catch {}` 里没有日志也没有重抛，因为这不是错误处理，是默认值：一个不能确定安全的调用就当它不安全。谓词还接受 `arguments`，所以同一个工具可以按参数决定（只读命令并发、写命令独占）。",
+        "en": "All three paths in `executionMode()` return `{ kind: 'exclusive' }`. The `catch {}` has no logging and no rethrow, because this is not error handling but a default: a call that cannot be shown safe is treated as unsafe. The predicate also receives `arguments`, so one tool can decide per call (read-only commands parallel, writes exclusive)."
+      }
+    }
+  ],
+  "open": [
+    {
+      "id": "o1",
+      "prompt": {
+        "zh": "`ctx.tools.execute()` 从不把异常抛给调用方：参数错、工具返回值违反自己的 `output.schema`、`render` 抛异常、工具不存在、超时、取消，六种情况全部变成结构化的 `isError` 结果。说明这个设计对 agent loop 意味着什么（结合第 5 章的工具调度），并说明 `createSuccessResult()` 里「快照 → 校验 → 冻结 → 投影」这四步的顺序为什么不能换。",
+        "en": "`ctx.tools.execute()` never throws to its caller: bad arguments, a return value violating the tool's own `output.schema`, a throwing `render`, an unknown tool, a timeout, and a cancellation all become structured `isError` results. Explain what that means for the agent loop (tie it to chapter 5's tool scheduling), and explain why the four steps in `createSuccessResult()` — snapshot, validate, freeze, project — cannot be reordered."
+      },
+      "context": [
+        { "path": "packages/core/tools/src/index.ts", "lineStart": 1793, "lineEnd": 1823, "note": "createSuccessResult 四步" },
+        { "path": "packages/core/tools/src/index.ts", "lineStart": 1463, "lineEnd": 1507, "note": "prepareExecution：每条拒绝路径都返回结果" },
+        { "path": "packages/core/agent-loop/src/tool-calls.ts", "lineStart": 121, "lineEnd": 246, "note": "runGroup：并发执行、模型序提交" }
+      ],
+      "rubric": [
+        "必须指出循环之所以敢并发调度工具、并按模型序提交，前提是每一次 execute 必然 resolve 出一个可提交的结果；一次抛异常会让 commitReady 的连续提交断掉",
+        "必须指出错误是结构化的：带稳定的 code（INVALID_ARGS / INVALID_TOOL_OUTPUT / UNKNOWN_TOOL / TOOL_TIMEOUT / ABORTED），策略插件按 code 路由而不解析 message",
+        "必须指出这些错误结果照样会落成 tool/result 事件，因此模型能看到失败原因并自己纠正，而不是整个轮次崩掉",
+        "必须解释「先快照」：脱离工具可能还持有的引用，保证校验的和最终用的是同一份数据，工具在返回后继续改自己的对象也影响不到结果",
+        "必须解释「先校验后冻结再 render」：冻结在 render 之前，render 就改不动被校验过的 value；render 抛异常被包成 ToolOutputError 而不是逃逸",
+        "（加分）注意到 presentationMeta 只在 exec.parent === undefined 时计算，因为嵌套子调用在界面上没有位置",
+        "（加分）注意到 liar 那个例子里两条违规是一起报的，不是报第一条就停"
+      ],
+      "reference": "这条流水线不抛异常，是循环并发调度的前提。第 5 章的 runGroup 会同时启动一批工具，然后用 commitReady 沿着连续的模型序提交结果。如果某一次 execute 抛出来，这个 slot 永远填不上，commitReady 的 while 循环就停在那里，后面已经算完的结果全部提交不了，而且那一批调用里已经产生的副作用没有对应的 tool/result 落日志，会话日志就出现了「有 tool-call 没有 tool-result」的不配对状态，下一次请求直接被 provider 拒绝。把六种失败都变成结果，意味着每个 slot 必然被填上，提交序列不会断。\n\n错误是结构化的，这一点同样重要。每个 isError 结果带一个稳定的机器码：参数不合法是 INVALID_ARGS，返回值或渲染出问题是 INVALID_TOOL_OUTPUT，工具不存在是 UNKNOWN_TOOL，超时是 TOOL_TIMEOUT，取消按 body 有没有启动分成 ABORTED 和 ABORTED_BEFORE_DISPATCH。策略插件（重试、沙箱、审计）按 code 路由，不需要解析 message，message 的措辞可以随时改。而且这些失败结果一样会走完 post-execute 和 tools/result，一样落成 tool/result 事件，所以模型能读到「你少传了 pattern」并在下一步自己补上，而不是整个轮次崩掉。\n\ncreateSuccessResult 的四步顺序：\n\n先 snapshotToolValue：工具返回的可能是它内部还持有引用的对象。快照把它复制成一份独立的、可无损 JSON 序列化的值。如果不先快照，工具在返回之后（比如某个异步收尾里）继续改自己的对象，校验通过的那一刻和最终写进日志的那一刻内容就不一样了。快照也顺带确认了返回值确实是可序列化的。\n\n然后 validateJsonSchemaValue：对着工具自己声明的 output.schema 校验快照。校验必须在快照之后，否则校验的是一个还可能变的对象。\n\n然后 deepFreeze：冻结这份已经校验过的值。\n\n最后 render(exec.arguments, value)：投影成模型看到的 ContentBlock[]。render 拿到的是冻结过的 value，所以它改不动一份已经通过校验的数据；如果冻结在 render 之后，一个写错的 render 可以在校验之后偷偷改掉 value，日志里的 value 和被校验的 value 就不是同一份了。render 抛出的异常被 projectionError 包成 ToolOutputError，不逃逸到调用方。\n\n还有两处细节：presentationMeta 只在 exec.parent === undefined 时计算，因为有 parent 意味着这是 run_code 里的嵌套子调用，界面上没有它的位置；validateJsonSchemaValue 返回的是违规列表而不是第一条违规，所以 liar 那个例子里 matches 类型错和 extra 多余属性两条是一起报出来的。"
+    },
+    {
+      "id": "o2",
+      "prompt": {
+        "zh": "一个 `tools/execute` 包装器（比如 timeout-policy）可以替换 `exec.signal`，也可以替换返回的结果。说明注册表用哪两个机制保证这两种替换不会破坏契约：一是包装器换了 signal 之后，工具为什么仍然听得见调用方的取消；二是包装器伪造出来的成功结果，为什么绕不过 `output.schema` 校验。",
+        "en": "A `tools/execute` wrapper (timeout-policy, say) may replace `exec.signal` and may replace the returned result. Explain the two mechanisms the registry uses to keep both replacements from breaking the contract: first, why a tool still hears the caller's cancellation after a wrapper swapped the signal; second, why a success result a wrapper fabricates cannot bypass `output.schema` validation."
+      },
+      "context": [
+        { "path": "packages/core/tools/src/index.ts", "lineStart": 1532, "lineEnd": 1560, "note": "dispatchToolBody：融回调用方 signal" },
+        { "path": "packages/core/tools/src/index.ts", "lineStart": 1826, "lineEnd": 1844, "note": "normalizeDispatchResult" },
+        { "path": "packages/core/tools/src/index.ts", "lineStart": 1787, "lineEnd": 1790, "note": "markCanonical" },
+        { "path": "packages/guard/timeout-policy/src/index.ts", "lineStart": 55, "lineEnd": 81, "note": "范本包装器" }
+      ],
+      "rubric": [
+        "必须指出 dispatchToolBody 用 fuseToolSignals 把包装器给的 signal 和 state.callerSignal（原始调用方 signal）融成一个再交给工具体，所以换 signal 不能让工具听不见调用方的取消",
+        "必须指出包装器还有一条自律约束：finally 里要把 exec.signal 还回去，否则 post-execute 监听器会拿到一个已经 abort 的 signal 并误判整次调用被取消",
+        "必须指出 normalizeDispatchResult 用 canonicalResults 这张 WeakMap 判断结果是不是注册表自己造的；不是的话重新走 createSuccessResult，也就是重新校验和重新 render",
+        "必须解释 markCanonical 记的 key 是 exec.token（每次执行 Symbol() 出来的新值），所以记的是「这个结果属于这一次执行」而不是「这个结果是规范的」；包装器缓存上一次的结果对象返回，token 对不上照样重新校验",
+        "必须指出 tools/post-execute 的 accept 带 value 时同样走 createSuccessResult 重新校验，且不允许同时替换 content 和 value",
+        "（加分）注意到包装器只能改 exec.signal，callId / name / arguments 不可变，改身份等于伪造一次调用",
+        "（加分）注意到 timeout-policy 用 timeoutOf(d.signal, TOOL_TIMEOUT) 按码判定，避免把外层包装器先响的计时器误读成自己的超时"
+      ],
+      "reference": "两个机制分别管两件事。\n\nsignal 那一侧靠 dispatchToolBody 的重新融合。包装器把 exec.signal 换成自己派生的那个（timeout-policy 换成 deadline 的 signal），但真正交给工具体的不是它：dispatchToolBody 先从 cancellationStates 里取出 state.callerSignal，也就是调用方最初传进来的那个原始 signal，然后 fuseToolSignals(state.callerSignal, wrapperSignal) 把两者融成一个，任一 abort 都会传导。事件声明写的是 The registry re-fuses the original caller signal before the body, so replacement cannot detach caller cancellation。所以一个包装器无论怎么换 signal，都不可能让工具听不见用户按下的取消。\n\n包装器这一侧还有一条自律约束：finally 里必须把 exec.signal 还回去。timeout-policy 的注释解释了为什么 —— post-execute 监听器如果拿到这个插件那个（可能已经 abort 的）超时 signal，会误以为整次调用被取消了。另外包装器只能改 signal，callId、name、arguments 都是不可变的，事件 JSDoc 写的是 call identity remains immutable，改身份等于伪造一次调用。\n\n结果那一侧靠 normalizeDispatchResult 和 canonicalResults。注册表自己造出来的每一个结果，都会被 markCanonical 打上标记，key 是结果对象，value 是 exec.token。包装器返回之后，normalizeDispatchResult 第一件事就是查这张 WeakMap：如果 canonicalResults.get(result) === exec.token，说明这个对象就是注册表刚才造的，原样放行；否则说明它是包装器新造的，要重新走 createSuccessResult(exec, tool, result.value)，也就是重新对着 output.schema 校验、重新 deepFreeze、重新 render。伪造一个 { isError: false, value: 任意东西 } 骗不过去。\n\nkey 用 token 而不是一个布尔标记，这一点很关键。token 是 createExecution 里 Symbol() 出来的，每次执行都是新的、不可伪造的值。记的语义是「这个结果对象属于这一次执行」，不是「这个结果对象是规范的」。所以一个包装器把上一次调用的规范结果对象缓存下来、这次直接返回，token 对不上，照样会被重新校验。\n\ntools/post-execute 走同一套：accept 决定里带 value 时，同样调 createSuccessResult 重新校验；而且函数里有一条 Object.hasOwn(decision, 'content') && Object.hasOwn(decision, 'value') 的检查，不许同时替换两者，因为 content 是 value 的投影，两个都给自相矛盾。最后 materializeFinalResult 在 tools/result 之前 deepFreeze，观察者只能看。"
+    },
+    {
+      "id": "o3",
+      "prompt": {
+        "zh": "取消到达时，工具调用的结果可能是 `ABORTED` 也可能是 `ABORTED_BEFORE_DISPATCH`。说明这两者由什么决定、为什么必须区分；再说明为什么取消只替换成功的结果而保留工具自己报的错误；最后说明「已经启动的工作照样等它跑完」这条规则和第 5 章的工具调度是什么关系。",
+        "en": "When cancellation arrives, a tool call's result may be `ABORTED` or `ABORTED_BEFORE_DISPATCH`. Explain what decides between them and why the distinction matters; why cancellation replaces only successful results while keeping a tool's own structured error; and how the rule that already-started work is still drained relates to chapter 5's tool scheduling."
+      },
+      "context": [
+        { "path": "packages/core/tools/src/index.ts", "lineStart": 1518, "lineEnd": 1525, "note": "cancellationResult：bodyInvoked 决定码" },
+        { "path": "packages/core/tools/src/index.ts", "lineStart": 1532, "lineEnd": 1560, "note": "dispatchToolBody：bodyInvoked 置位点" },
+        { "path": "packages/core/tools/src/index.ts", "lineStart": 1609, "lineEnd": 1621, "note": "finalizeScheduledExecution 里的 !isError 条件" },
+        { "path": "packages/core/agent-loop/src/tool-calls.ts", "lineStart": 121, "lineEnd": 246, "note": "runGroup 的 drain 与合成结果" }
+      ],
+      "rubric": [
+        "必须指出由 cancellationStates 里的 bodyInvoked 决定，它在 dispatchToolBody 里紧挨着 tool.execute() 之前置位",
+        "必须解释区分的实际后果：ABORTED_BEFORE_DISPATCH 意味着工具没有产生任何副作用，重放和重试可以当它没发生；ABORTED 意味着工具体跑过一部分，副作用未知",
+        "必须指出取消替换的条件里有 !result.isError：只替换成功的结果，工具自己报的结构化错误保留下来，因为那比一句「被取消了」信息量大",
+        "必须指出 execute() 的 JSDoc 那句 already-started work is still drained：这一层从不 race、从不抛弃 promise，启动了的工具体一定等它 settle",
+        "必须把它接回第 5 章：runGroup 在取消时 drain 已启动的调用并正常提交它们的结果，给未启动的调用补合成结果保住 tool-call/tool-result 配对；能这么做的前提正是这一层保证「启动了的一定 settle、每次调用一定有结果」",
+        "（加分）注意到 dispatchToolBody 开头 isAborted(signal) 就直接返回 ABORTED_BEFORE_DISPATCH 且不置 bodyInvoked",
+        "（加分）注意到 prepareExecution 里有多处 callerCancelled 检查，审批返回后还要再查一次，因为审批可能等了很久"
+      ],
+      "reference": "两个码由 cancellationStates 里的一个布尔量 bodyInvoked 决定。cancellationResult 里就一行三元：bodyInvoked 为真返回 toolAbortedResult，为假返回 toolAbortedBeforeDispatchResult。置位点在 dispatchToolBody 里，紧挨着 const returned = await tool.execute(...) 之前的那一行 state.bodyInvoked = true。dispatchToolBody 开头还有一次检查，融合后的 signal 已经 abort 就直接返回 ABORTED_BEFORE_DISPATCH，此时 bodyInvoked 保持 false。\n\n区分这两者是有实际后果的。ABORTED_BEFORE_DISPATCH 是一个强承诺：这个工具的 execute 一次都没被调用过，所以它没有产生任何副作用。重放这条日志的人、决定要不要重试的策略插件，都可以放心地当它没发生过。ABORTED 则相反：工具体跑过一段，可能写了半个文件、发了一个 HTTP 请求、改了数据库，副作用未知。同一个「被取消了」，一个可以安全重试，一个不能，所以必须用两个码而不是一个。\n\n取消只替换成功的结果，条件写在 finalizeScheduledExecution 和 dispatchScheduledExecution 里都是 this.callerCancelled(exec) && !result.isError。理由是信息量：工具自己报的结构化错误（比如 ENOENT、权限不足、参数在运行期才发现不合法）比一句「被取消了」有用得多，而且那个错误是真的发生了的事实。取消这件事本身在别处也有记录（turn/end 的 reason，第 5 章讲过），不需要靠覆盖工具的错误来表达。\n\n「已经启动的工作照样等它跑完」写在 execute() 的 JSDoc 里：already-started work is still drained and may retain a tool-owned structured error。dispatchToolBody 里那句 const returned = await tool.execute(...) 前面没有 Promise.race，取消不会跳过这个 await。工具体的 promise 既不被抛弃也不被 race 掉，一定 settle 之后才决定最终结果。timeout-policy 的模块 JSDoc 也强调了同一件事：without racing or abandoning the tool promise。\n\n这条规则正是第 5 章工具调度能成立的地基。runGroup 在收到取消时做三件事：停止启动新调用、drain 已经启动的调用并按模型序正常提交它们的 tool/result、给还没启动的调用调 appendSkippedToolCall 补一对合成的 call/result。第二件事要求已启动的调用一定会 settle 出一个可提交的结果，第三件事要求「没启动」这个状态是可判定的。这一层的 bodyInvoked 和「从不抛弃 promise」两条，正好分别支撑这两个要求。最终目的是同一个：会话日志里绝不出现有 tool-call 而没有配对 tool-result 的状态，否则下一次请求会被 provider 直接拒绝。"
+    }
+  ]
+}
